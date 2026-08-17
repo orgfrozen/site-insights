@@ -7,7 +7,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⛔ Blocked
 | Module | Status | Phase | Notes |
 |---|---|---:|---|
 | M00 Project Registry | 🟡 | 1 | Initial repository/API implemented; full Vitest verification pending npm install |
-| M01 Google Search Console | 🟡 | 1 | OAuth, PT date windows, Search Analytics client and historical collector implemented; URL Inspection/Sitemap pending |
+| M01 Google Search Console | 🟡 | 1 | OAuth, PT date windows, Search Analytics and core URL Inspection collectors implemented; Sitemap pending |
 | M02 Google Analytics 4 | ⬜ | 3 | Deferred |
 | M03 Cloudflare Analytics | ⬜ | 3 | Deferred |
 | M04 Site Health / SEO Crawler | ⬜ | 2 | Deferred |
@@ -47,7 +47,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T07 Search Console date windows — source/tests implemented; runtime smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T08 Search Analytics REST client — source/tests implemented; runtime smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T09 Search Analytics historical collection + upserts — source/tests implemented; runtime + SQL upsert smoke verified; full Vitest verification pending PatchSync/local npm install
-- [ ] P1-T10 Core URL Inspection collection
+- [ ] P1-T10 Core URL Inspection collection — source/tests implemented; bounded-concurrency + persistence smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T11 GSC Sitemap collection
 - [ ] P1-T12 Collection-run logging + source isolation
 - [ ] P1-T13 Cron + manual GSC collection
@@ -63,7 +63,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] M00 Project Registry implemented and tested
 - [ ] M01 Google OAuth/token refresh implemented
 - [ ] M01 Search Analytics collector implemented
-- [ ] M01 URL Inspection collector implemented
+- [ ] M01 URL Inspection collector implemented — source complete; full verification pending PatchSync/local npm install
 - [ ] M01 Sitemap collector implemented
 - [ ] M08 collection-run scheduler and isolation implemented
 - [ ] M09 D1 migrations and historical upserts implemented
