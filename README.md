@@ -1,0 +1,164 @@
+# site-insights
+
+Multi-site SEO / growth data foundation for Cloudflare Workers.
+
+This repository is the initialized Phase 1 foundation. It currently includes:
+
+- Cloudflare Worker entry point and public `GET /health`
+- Cloudflare D1 schema for projects, core URLs, GSC metrics, URL inspections, sitemap snapshots, and collection runs
+- Multi-site Project Registry repository and admin API
+- Separate admin/read-only Bearer-token boundaries
+- Validation for project domains, HTTPS URLs, sitemap/robots hosts, languages, and core URLs
+- Phase 1 architecture, implementation plan, and Master Map
+
+Google OAuth, Search Console collection, scheduler orchestration, reporting aggregation, and production deployment are the next Phase 1 tasks.
+
+## Requirements
+
+- Node.js 22+
+- npm
+- Cloudflare account
+- Wrangler login for remote D1 creation/deployment
+
+## Install
+
+```bash
+npm install
+```
+
+The first install also creates `package-lock.json`. The generated source package may not include it if dependencies could not be downloaded in the build environment.
+
+## Create the D1 database
+
+`wrangler.jsonc` intentionally contains this bootstrap placeholder:
+
+```json
+"database_id": "00000000-0000-0000-0000-000000000000"
+```
+
+Create the real database:
+
+```bash
+npx wrangler login
+npx wrangler d1 create site-insights
+```
+
+Copy the returned UUID into `wrangler.jsonc`, replacing the all-zero placeholder.
+
+Then apply migrations:
+
+```bash
+npx wrangler d1 migrations apply site-insights --local
+npx wrangler d1 migrations apply site-insights --remote
+```
+
+## Configure API tokens
+
+Generate two independent random tokens. The admin token can mutate project configuration. The read token is reserved for reporting consumers such as ChatGPT scheduled reports.
+
+```bash
+openssl rand -hex 32
+openssl rand -hex 32
+
+npx wrangler secret put ADMIN_API_TOKEN
+npx wrangler secret put READ_API_TOKEN
+```
+
+Do not commit real token values.
+
+For local development, create `.dev.vars` (already ignored by git):
+
+```dotenv
+ADMIN_API_TOKEN=replace-with-local-admin-token
+READ_API_TOKEN=replace-with-local-read-token
+```
+
+## Run checks
+
+Once npm dependencies are installed:
+
+```bash
+npm run types
+npm run typecheck
+npm test
+```
+
+Run locally:
+
+```bash
+npm run dev
+```
+
+## Current API
+
+Public:
+
+```text
+GET /health
+```
+
+Admin, using `Authorization: Bearer <ADMIN_API_TOKEN>`:
+
+```text
+POST  /v1/admin/projects
+GET   /v1/admin/projects
+GET   /v1/admin/projects/:id
+PATCH /v1/admin/projects/:id
+PUT   /v1/admin/projects/:id/core-urls
+POST  /v1/admin/projects/:id/enable
+POST  /v1/admin/projects/:id/disable
+```
+
+Read-only `/v1/*` routing is protected now; reporting endpoints are added later in Phase 1.
+
+## Example: create ZeroParse
+
+```bash
+curl -X POST 'http://localhost:8787/v1/admin/projects' \
+  -H 'Authorization: Bearer YOUR_ADMIN_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": "zeroparse",
+    "name": "ZeroParse",
+    "domain": "zeroparse.com",
+    "baseUrl": "https://zeroparse.com",
+    "timezone": "Asia/Shanghai",
+    "gscProperty": "sc-domain:zeroparse.com",
+    "robotsUrl": "https://zeroparse.com/robots.txt",
+    "sitemapUrls": ["https://zeroparse.com/sitemap.xml"],
+    "primaryLanguage": "en",
+    "languages": ["en", "zh"]
+  }'
+```
+
+Add its core URLs:
+
+```bash
+curl -X PUT 'http://localhost:8787/v1/admin/projects/zeroparse/core-urls' \
+  -H 'Authorization: Bearer YOUR_ADMIN_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "urls": [
+      {"url":"https://zeroparse.com/","pageType":"home","priority":10,"inspectionEnabled":true},
+      {"url":"https://zeroparse.com/json-viewer","pageType":"tool","priority":20,"inspectionEnabled":true},
+      {"url":"https://zeroparse.com/json-formatter","pageType":"tool","priority":30,"inspectionEnabled":true},
+      {"url":"https://zeroparse.com/jsonl-viewer","pageType":"tool","priority":40,"inspectionEnabled":true},
+      {"url":"https://zeroparse.com/big-json-viewer","pageType":"tool","priority":50,"inspectionEnabled":true}
+    ]
+  }'
+```
+
+## Security model
+
+- Google credentials will live only in Cloudflare Worker Secrets.
+- Admin and read-only consumers use different API tokens.
+- D1 stores site configuration and collected facts, never Google client secrets or refresh tokens.
+- `.dev.vars`, `.env*`, `node_modules`, and Wrangler local state are ignored.
+
+## Project tracking
+
+See:
+
+- `MASTER_MAP.md`
+- `docs/superpowers/specs/2026-08-17-site-insights-design.md`
+- `docs/superpowers/plans/2026-08-17-phase-1-gsc-foundation.md`

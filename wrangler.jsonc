@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "site-insights",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-17",
+  "triggers": {
+    "crons": ["0 23 * * *"]
+  },
+  "vars": {
+    "GSC_INITIAL_BACKFILL_DAYS": "56",
+    "GSC_REFRESH_DAYS": "3",
+    "GSC_INSPECTION_CONCURRENCY": "3"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "site-insights",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

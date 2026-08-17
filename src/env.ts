@@ -1,0 +1,10 @@
+export type SiteInsightsEnv = Env & {
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REFRESH_TOKEN?: string;
+  ADMIN_API_TOKEN?: string;
+  READ_API_TOKEN?: string;
+  GSC_INITIAL_BACKFILL_DAYS: string;
+  GSC_REFRESH_DAYS: string;
+  GSC_INSPECTION_CONCURRENCY: string;
+};
