@@ -23,8 +23,19 @@ Google OAuth, Search Console collection, scheduler orchestration, reporting aggr
 ## Install
 
 ```bash
+node --version   # must be v22+
 npm install
 ```
+
+The test/tooling stack is pinned to one verified compatibility line instead of using broad ranges:
+
+- `vitest 4.1.10`
+- `@cloudflare/vitest-pool-workers 0.20.1`
+- `wrangler 4.118.0`
+- `typescript 5.9.3`
+- `@types/node 22.20.1`
+
+The original bootstrap used `@cloudflare/vitest-pool-workers ^0.9.0`. Because this package is pre-1.0, npm interprets that range as `>=0.9.0 <0.10.0`, which selects the old Vitest 2/3-compatible line and conflicts with Vitest 4. The pinned versions above avoid that mismatch and prevent unexpected install drift before a lockfile exists.
 
 The first install also creates `package-lock.json`. The generated source package may not include it if dependencies could not be downloaded in the build environment.
 

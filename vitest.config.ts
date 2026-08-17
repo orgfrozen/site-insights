@@ -23,5 +23,7 @@ export default defineConfig({
   ],
   test: {
     setupFiles: ["./test/setup.ts"],
+    // Keep D1-mutating test files sequential for deterministic local runs.
+    maxWorkers: 1,
   },
 });
