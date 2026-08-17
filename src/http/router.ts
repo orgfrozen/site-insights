@@ -1,4 +1,6 @@
+import { collectProjectGsc } from "../collection/gsc-orchestrator";
 import type { SiteInsightsEnv } from "../env";
+import { ProjectRepository } from "../projects/project-repository";
 import { handleProjectAdminRoute } from "../projects/project-routes";
 import { requireAdminAuth, requireReadAuth } from "./auth";
 import { jsonResponse } from "./response";
@@ -29,6 +31,14 @@ export async function routeRequest(
     if (pathname === "/v1/admin/projects") {
       const response = await handleProjectAdminRoute(request, env, {});
       return response ?? jsonResponse({ error: "method_not_allowed" }, 405);
+    }
+
+    const collectMatch = pathname.match(/^\/v1\/admin\/projects\/([a-z0-9-]+)\/collect\/gsc$/);
+    if (request.method === "POST" && collectMatch) {
+      const project = await new ProjectRepository(env.DB).getProject(collectMatch[1]);
+      if (!project) return jsonResponse({ error: "project_not_found" }, 404);
+      const summary = await collectProjectGsc(project, env, { triggerType: "manual" });
+      return jsonResponse(summary);
     }
 
     const coreUrlsMatch = pathname.match(/^\/v1\/admin\/projects\/([a-z0-9-]+)\/core-urls$/);

@@ -14,7 +14,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⛔ Blocked
 | M05 PageSpeed / CWV | ⬜ | 2 | Deferred |
 | M06 Keyword / Ranking Tracking | ⬜ | 4 | Provider abstraction required |
 | M07 Promotion / Backlinks | ⬜ | 3 | Promotion records first |
-| M08 Data Pipeline / Scheduler | 🟡 | 1 | Source-isolated GSC orchestration + collection-run logging implemented; Cron/manual trigger pending |
+| M08 Data Pipeline / Scheduler | 🟡 | 1 | Source-isolated GSC orchestration + collection-run logging + Cron/manual trigger implemented; full Vitest/local Cron verification pending |
 | M09 Historical Data Warehouse | 🟡 | 1 | Phase 1 schema and Search Analytics historical upserts implemented; remaining collectors pending |
 | M10 Insight Engine | ⬜ | 2/4 | Basic then advanced |
 | M11 Alerts | ⬜ | 2 | Deferred |
@@ -50,7 +50,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T10 Core URL Inspection collection — source/tests implemented; bounded-concurrency + persistence smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T11 GSC Sitemap collection — source/tests implemented; scoped typecheck + client/collector/repository/SQLite smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T12 Collection-run logging + source isolation — source/tests implemented; isolation + OAuth fanout runtime smoke verified; full Vitest verification pending PatchSync/local npm install
-- [ ] P1-T13 Cron + manual GSC collection
+- [ ] P1-T13 Cron + manual GSC collection — source/tests implemented; scheduler/manual-route runtime smoke verified; full Vitest/local Wrangler Cron verification pending PatchSync/local npm install
 - [ ] P1-T14 Read-only status aggregation API
 - [ ] P1-T15 Health + secure diagnostics
 - [ ] P1-T16 Configure ZeroParse + VetaTool
@@ -65,7 +65,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] M01 Search Analytics collector implemented
 - [ ] M01 URL Inspection collector implemented — source complete; full verification pending PatchSync/local npm install
 - [ ] M01 Sitemap collector implemented — source complete; full verification pending PatchSync/local npm install
-- [ ] M08 collection-run scheduler and isolation implemented — source isolation/run logging complete; scheduler pending P1-T13
+- [ ] M08 collection-run scheduler and isolation implemented — source complete; full Vitest/local Wrangler Cron verification pending PatchSync/local npm install
 - [ ] M09 D1 migrations and historical upserts implemented
 - [ ] M13 `/v1/projects/:id/status` implemented
 - [ ] M17 admin/read-only authorization implemented

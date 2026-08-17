@@ -1,3 +1,4 @@
+import { runScheduledCollection } from "./collection/scheduler";
 import type { SiteInsightsEnv } from "./env";
 import { routeRequest } from "./http/router";
 
@@ -6,7 +7,7 @@ export default {
     return routeRequest(request, env, ctx);
   },
 
-  async scheduled(_controller: ScheduledController, _env: SiteInsightsEnv, _ctx: ExecutionContext): Promise<void> {
-    // Phase 1 scheduler wiring is implemented in a later task.
+  async scheduled(_controller: ScheduledController, env: SiteInsightsEnv, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runScheduledCollection(env));
   },
 };
