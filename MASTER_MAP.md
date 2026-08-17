@@ -7,14 +7,14 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⛔ Blocked
 | Module | Status | Phase | Notes |
 |---|---|---:|---|
 | M00 Project Registry | 🟡 | 1 | Initial repository/API implemented; full Vitest verification pending npm install |
-| M01 Google Search Console | 🟡 | 1 | OAuth, PT date windows, Search Analytics and core URL Inspection collectors implemented; Sitemap pending |
+| M01 Google Search Console | 🟡 | 1 | OAuth, PT date windows, Search Analytics, URL Inspection, and Sitemap collectors implemented; orchestration verification pending |
 | M02 Google Analytics 4 | ⬜ | 3 | Deferred |
 | M03 Cloudflare Analytics | ⬜ | 3 | Deferred |
 | M04 Site Health / SEO Crawler | ⬜ | 2 | Deferred |
 | M05 PageSpeed / CWV | ⬜ | 2 | Deferred |
 | M06 Keyword / Ranking Tracking | ⬜ | 4 | Provider abstraction required |
 | M07 Promotion / Backlinks | ⬜ | 3 | Promotion records first |
-| M08 Data Pipeline / Scheduler | ⬜ | 1 | Cron + isolated runs |
+| M08 Data Pipeline / Scheduler | 🟡 | 1 | Source-isolated GSC orchestration + collection-run logging implemented; Cron/manual trigger pending |
 | M09 Historical Data Warehouse | 🟡 | 1 | Phase 1 schema and Search Analytics historical upserts implemented; remaining collectors pending |
 | M10 Insight Engine | ⬜ | 2/4 | Basic then advanced |
 | M11 Alerts | ⬜ | 2 | Deferred |
@@ -24,7 +24,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⛔ Blocked
 | M15 Agent / PatchSync Integration | ⬜ | 6 | Human approval required |
 | M16 Admin Dashboard | ⬜ | 5 | Deferred |
 | M17 Authentication / Security | 🟡 | 1 | Bearer boundaries implemented; production secrets/scoping still pending |
-| M18 Observability | 🟡 | 1 | Public health endpoint implemented; run logging still pending |
+| M18 Observability | 🟡 | 1 | Public health endpoint + structured collection-run logging implemented; hardened diagnostics pending |
 | M19 Backup / Export | ⬜ | 5 | Deferred |
 | M20 Master Map / Progress Tracking | ✅ | 1 | This file |
 
@@ -49,7 +49,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T09 Search Analytics historical collection + upserts — source/tests implemented; runtime + SQL upsert smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T10 Core URL Inspection collection — source/tests implemented; bounded-concurrency + persistence smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T11 GSC Sitemap collection — source/tests implemented; scoped typecheck + client/collector/repository/SQLite smoke verified; full Vitest verification pending PatchSync/local npm install
-- [ ] P1-T12 Collection-run logging + source isolation
+- [ ] P1-T12 Collection-run logging + source isolation — source/tests implemented; isolation + OAuth fanout runtime smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T13 Cron + manual GSC collection
 - [ ] P1-T14 Read-only status aggregation API
 - [ ] P1-T15 Health + secure diagnostics
@@ -64,12 +64,12 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] M01 Google OAuth/token refresh implemented
 - [ ] M01 Search Analytics collector implemented
 - [ ] M01 URL Inspection collector implemented — source complete; full verification pending PatchSync/local npm install
-- [ ] M01 Sitemap collector implemented
-- [ ] M08 collection-run scheduler and isolation implemented
+- [ ] M01 Sitemap collector implemented — source complete; full verification pending PatchSync/local npm install
+- [ ] M08 collection-run scheduler and isolation implemented — source isolation/run logging complete; scheduler pending P1-T13
 - [ ] M09 D1 migrations and historical upserts implemented
 - [ ] M13 `/v1/projects/:id/status` implemented
 - [ ] M17 admin/read-only authorization implemented
-- [ ] M18 `/health` and structured run logging implemented
+- [ ] M18 `/health` and structured run logging implemented — structured run logging source complete; hardened diagnostics pending P1-T15
 - [ ] Configure ZeroParse project
 - [ ] Configure VetaTool project
 - [ ] Real GSC smoke test for ZeroParse
