@@ -7,7 +7,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⛔ Blocked
 | Module | Status | Phase | Notes |
 |---|---|---:|---|
 | M00 Project Registry | 🟡 | 1 | Initial repository/API implemented; full Vitest verification pending npm install |
-| M01 Google Search Console | 🟡 | 1 | OAuth connection and PT date-window helpers implemented; GSC collectors pending |
+| M01 Google Search Console | 🟡 | 1 | OAuth, PT date windows, Search Analytics client and historical collector implemented; URL Inspection/Sitemap pending |
 | M02 Google Analytics 4 | ⬜ | 3 | Deferred |
 | M03 Cloudflare Analytics | ⬜ | 3 | Deferred |
 | M04 Site Health / SEO Crawler | ⬜ | 2 | Deferred |
@@ -15,7 +15,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⛔ Blocked
 | M06 Keyword / Ranking Tracking | ⬜ | 4 | Provider abstraction required |
 | M07 Promotion / Backlinks | ⬜ | 3 | Promotion records first |
 | M08 Data Pipeline / Scheduler | ⬜ | 1 | Cron + isolated runs |
-| M09 Historical Data Warehouse | 🟡 | 1 | Phase 1 schema implemented; collectors/upserts still pending |
+| M09 Historical Data Warehouse | 🟡 | 1 | Phase 1 schema and Search Analytics historical upserts implemented; remaining collectors pending |
 | M10 Insight Engine | ⬜ | 2/4 | Basic then advanced |
 | M11 Alerts | ⬜ | 2 | Deferred |
 | M12 Notification Channels | ⬜ | 2 | Bark first |
@@ -46,7 +46,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T06 Google OAuth connection + local authorization helper — source/tests implemented; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T07 Search Console date windows — source/tests implemented; runtime smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T08 Search Analytics REST client — source/tests implemented; runtime smoke verified; full Vitest verification pending PatchSync/local npm install
-- [ ] P1-T09 Search Analytics historical collection + upserts
+- [ ] P1-T09 Search Analytics historical collection + upserts — source/tests implemented; runtime + SQL upsert smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T10 Core URL Inspection collection
 - [ ] P1-T11 GSC Sitemap collection
 - [ ] P1-T12 Collection-run logging + source isolation
