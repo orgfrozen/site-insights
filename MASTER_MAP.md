@@ -7,7 +7,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⛔ Blocked
 | Module | Status | Phase | Notes |
 |---|---|---:|---|
 | M00 Project Registry | 🟡 | 1 | Initial repository/API implemented; full Vitest verification pending npm install |
-| M01 Google Search Console | ⬜ | 1 | Single Google account, multiple properties |
+| M01 Google Search Console | 🟡 | 1 | Single-account OAuth connection implemented; GSC collectors pending |
 | M02 Google Analytics 4 | ⬜ | 3 | Deferred |
 | M03 Cloudflare Analytics | ⬜ | 3 | Deferred |
 | M04 Site Health / SEO Crawler | ⬜ | 2 | Deferred |
@@ -43,7 +43,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T03 Project/Core URL repository — source implemented; full Vitest verification pending npm registry access
 - [ ] P1-T04 Admin/read-only auth + router — source implemented; full Vitest verification pending npm registry access
 - [ ] P1-T05 Project Registry API — source implemented; full Vitest verification pending npm registry access
-- [ ] P1-T06 Google OAuth connection + local authorization helper
+- [ ] P1-T06 Google OAuth connection + local authorization helper — source/tests implemented; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T07 Search Console date windows
 - [ ] P1-T08 Search Analytics REST client
 - [ ] P1-T09 Search Analytics historical collection + upserts

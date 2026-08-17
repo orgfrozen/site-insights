@@ -84,6 +84,32 @@ ADMIN_API_TOKEN=replace-with-local-admin-token
 READ_API_TOKEN=replace-with-local-read-token
 ```
 
+## Configure Google Search Console OAuth
+
+Phase 1 uses one Google account for all configured Search Console properties and requests only the read-only Search Console scope. Create a Google OAuth **Web application** client, enable the Search Console API, and register this exact redirect URI:
+
+```text
+http://127.0.0.1:53682/callback
+```
+
+Run the one-time local authorization helper from a trusted terminal:
+
+```bash
+export GOOGLE_CLIENT_ID='your-google-oauth-client-id'
+export GOOGLE_CLIENT_SECRET='your-google-oauth-client-secret'
+node scripts/google-oauth-local.mjs
+```
+
+Open the printed Google authorization URL, sign in with the account that owns the required Search Console properties, and complete consent. The helper prints the refresh token once to the local terminal. Store the three Google values as Worker secrets; do not put them in `.dev.vars` on shared machines or commit them:
+
+```bash
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler secret put GOOGLE_REFRESH_TOKEN
+```
+
+The Worker refreshes short-lived Google access tokens at runtime. Google credentials are never stored in D1.
+
 ## Run checks
 
 Once npm dependencies are installed:

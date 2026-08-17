@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "site-insights",
   "main": "src/index.ts",
-  "compatibility_date": "2026-08-17",
+  "compatibility_date": "2026-08-06",
   "triggers": {
     "crons": ["0 23 * * *"]
   },
