@@ -19,7 +19,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⛔ Blocked
 | M10 Insight Engine | ⬜ | 2/4 | Basic then advanced |
 | M11 Alerts | ⬜ | 2 | Deferred |
 | M12 Notification Channels | ⬜ | 2 | Bark first |
-| M13 Reporting API | ⬜ | 1 | Read-only status API |
+| M13 Reporting API | 🟡 | 1 | Read-only stored GSC status API implemented; full Vitest verification pending |
 | M14 ChatGPT Integration | ⬜ | 1+ | First consumer after API is stable |
 | M15 Agent / PatchSync Integration | ⬜ | 6 | Human approval required |
 | M16 Admin Dashboard | ⬜ | 5 | Deferred |
@@ -51,7 +51,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T11 GSC Sitemap collection — source/tests implemented; scoped typecheck + client/collector/repository/SQLite smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T12 Collection-run logging + source isolation — source/tests implemented; isolation + OAuth fanout runtime smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T13 Cron + manual GSC collection — source/tests implemented; scheduler/manual-route runtime smoke verified; full Vitest/local Wrangler Cron verification pending PatchSync/local npm install
-- [ ] P1-T14 Read-only status aggregation API
+- [ ] P1-T14 Read-only status aggregation API — source/tests implemented; real SQLite aggregation smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T15 Health + secure diagnostics
 - [ ] P1-T16 Configure ZeroParse + VetaTool
 - [ ] P1-T17 Production secrets/migrations/deploy
@@ -67,7 +67,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] M01 Sitemap collector implemented — source complete; full verification pending PatchSync/local npm install
 - [ ] M08 collection-run scheduler and isolation implemented — source complete; full Vitest/local Wrangler Cron verification pending PatchSync/local npm install
 - [ ] M09 D1 migrations and historical upserts implemented
-- [ ] M13 `/v1/projects/:id/status` implemented
+- [ ] M13 `/v1/projects/:id/status` implemented — source complete; full Vitest verification pending PatchSync/local npm install
 - [ ] M17 admin/read-only authorization implemented
 - [ ] M18 `/health` and structured run logging implemented — structured run logging source complete; hardened diagnostics pending P1-T15
 - [ ] Configure ZeroParse project

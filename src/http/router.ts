@@ -1,6 +1,7 @@
 import { collectProjectGsc } from "../collection/gsc-orchestrator";
 import type { SiteInsightsEnv } from "../env";
 import { ProjectRepository } from "../projects/project-repository";
+import { handleProjectStatusRoute } from "../reporting/status-routes";
 import { handleProjectAdminRoute } from "../projects/project-routes";
 import { requireAdminAuth, requireReadAuth } from "./auth";
 import { jsonResponse } from "./response";
@@ -71,6 +72,12 @@ export async function routeRequest(
   if (pathname.startsWith("/v1/")) {
     const rejected = requireReadAuth(request, env);
     if (rejected) return rejected;
+
+    const projectStatusMatch = pathname.match(/^\/v1\/projects\/([a-z0-9-]+)\/status$/);
+    if (request.method === "GET" && projectStatusMatch) {
+      return handleProjectStatusRoute(projectStatusMatch[1], env);
+    }
+
     return jsonResponse({ error: "not_found" }, 404);
   }
 
