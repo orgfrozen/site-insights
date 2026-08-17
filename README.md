@@ -137,6 +137,7 @@ GET /health
 Admin, using `Authorization: Bearer <ADMIN_API_TOKEN>`:
 
 ```text
+GET   /v1/admin/diagnostics
 POST  /v1/admin/projects
 GET   /v1/admin/projects
 GET   /v1/admin/projects/:id

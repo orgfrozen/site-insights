@@ -4,6 +4,7 @@ import { ProjectRepository } from "../projects/project-repository";
 import { handleProjectStatusRoute } from "../reporting/status-routes";
 import { handleProjectAdminRoute } from "../projects/project-routes";
 import { requireAdminAuth, requireReadAuth } from "./auth";
+import { configurationPresence, logEvent } from "../observability/logger";
 import { jsonResponse } from "./response";
 
 function healthResponse(): Response {
@@ -12,6 +13,26 @@ function healthResponse(): Response {
     service: "site-insights",
     timestamp: new Date().toISOString(),
   });
+}
+
+async function diagnosticsResponse(env: SiteInsightsEnv): Promise<Response> {
+  const configuration = configurationPresence(env);
+
+  try {
+    await env.DB.prepare("SELECT 1 AS ok").first();
+    return jsonResponse({
+      ok: true,
+      database: "ok",
+      configuration,
+    });
+  } catch {
+    logEvent("diagnostics.database_probe_failed", { database: "error" });
+    return jsonResponse({
+      ok: false,
+      database: "error",
+      configuration,
+    }, 503);
+  }
 }
 
 export async function routeRequest(
@@ -28,6 +49,11 @@ export async function routeRequest(
   if (pathname.startsWith("/v1/admin/")) {
     const rejected = requireAdminAuth(request, env);
     if (rejected) return rejected;
+
+    if (pathname === "/v1/admin/diagnostics") {
+      if (request.method !== "GET") return jsonResponse({ error: "method_not_allowed" }, 405);
+      return diagnosticsResponse(env);
+    }
 
     if (pathname === "/v1/admin/projects") {
       const response = await handleProjectAdminRoute(request, env, {});

@@ -24,7 +24,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⛔ Blocked
 | M15 Agent / PatchSync Integration | ⬜ | 6 | Human approval required |
 | M16 Admin Dashboard | ⬜ | 5 | Deferred |
 | M17 Authentication / Security | 🟡 | 1 | Bearer boundaries implemented; production secrets/scoping still pending |
-| M18 Observability | 🟡 | 1 | Public health endpoint + structured collection-run logging implemented; hardened diagnostics pending |
+| M18 Observability | 🟡 | 1 | Public health + secure admin diagnostics + structured collection-run logging implemented; full Vitest verification pending |
 | M19 Backup / Export | ⬜ | 5 | Deferred |
 | M20 Master Map / Progress Tracking | ✅ | 1 | This file |
 
@@ -52,7 +52,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T12 Collection-run logging + source isolation — source/tests implemented; isolation + OAuth fanout runtime smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T13 Cron + manual GSC collection — source/tests implemented; scheduler/manual-route runtime smoke verified; full Vitest/local Wrangler Cron verification pending PatchSync/local npm install
 - [ ] P1-T14 Read-only status aggregation API — source/tests implemented; real SQLite aggregation smoke verified; full Vitest verification pending PatchSync/local npm install
-- [ ] P1-T15 Health + secure diagnostics
+- [ ] P1-T15 Health + secure diagnostics — source/tests implemented; runtime success/failure/no-secret-leak smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T16 Configure ZeroParse + VetaTool
 - [ ] P1-T17 Production secrets/migrations/deploy
 - [ ] P1-T18 Real GSC smoke tests
@@ -69,7 +69,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] M09 D1 migrations and historical upserts implemented
 - [ ] M13 `/v1/projects/:id/status` implemented — source complete; full Vitest verification pending PatchSync/local npm install
 - [ ] M17 admin/read-only authorization implemented
-- [ ] M18 `/health` and structured run logging implemented — structured run logging source complete; hardened diagnostics pending P1-T15
+- [ ] M18 `/health`, secure diagnostics, and structured run logging implemented — source complete; full Vitest verification pending PatchSync/local npm install
 - [ ] Configure ZeroParse project
 - [ ] Configure VetaTool project
 - [ ] Real GSC smoke test for ZeroParse
