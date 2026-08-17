@@ -53,7 +53,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T13 Cron + manual GSC collection — source/tests implemented; scheduler/manual-route runtime smoke verified; full Vitest/local Wrangler Cron verification pending PatchSync/local npm install
 - [ ] P1-T14 Read-only status aggregation API — source/tests implemented; real SQLite aggregation smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T15 Health + secure diagnostics — source/tests implemented; runtime success/failure/no-secret-leak smoke verified; full Vitest verification pending PatchSync/local npm install
-- [ ] P1-T16 Configure ZeroParse + VetaTool
+- [x] P1-T16 Configure ZeroParse + VetaTool — local Project Registry API + fresh D1 migrations verified; production records are configured in P1-T17
 - [ ] P1-T17 Production secrets/migrations/deploy
 - [ ] P1-T18 Real GSC smoke tests
 - [ ] P1-T19 ChatGPT reporting handoff/security contract
@@ -70,8 +70,8 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] M13 `/v1/projects/:id/status` implemented — source complete; full Vitest verification pending PatchSync/local npm install
 - [ ] M17 admin/read-only authorization implemented
 - [ ] M18 `/health`, secure diagnostics, and structured run logging implemented — source complete; full Vitest verification pending PatchSync/local npm install
-- [ ] Configure ZeroParse project
-- [ ] Configure VetaTool project
+- [x] Configure ZeroParse project — local registry configuration verified (6 core URLs); production configuration remains P1-T17
+- [x] Configure VetaTool project — local registry configuration verified (homepage core URL); production configuration remains P1-T17
 - [ ] Real GSC smoke test for ZeroParse
 - [ ] Real GSC smoke test for VetaTool
 - [ ] Update ChatGPT ZeroParse scheduled report to consume site-insights
