@@ -48,7 +48,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T08 Search Analytics REST client — source/tests implemented; runtime smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T09 Search Analytics historical collection + upserts — source/tests implemented; runtime + SQL upsert smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T10 Core URL Inspection collection — source/tests implemented; bounded-concurrency + persistence smoke verified; full Vitest verification pending PatchSync/local npm install
-- [ ] P1-T11 GSC Sitemap collection
+- [ ] P1-T11 GSC Sitemap collection — source/tests implemented; scoped typecheck + client/collector/repository/SQLite smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T12 Collection-run logging + source isolation
 - [ ] P1-T13 Cron + manual GSC collection
 - [ ] P1-T14 Read-only status aggregation API
