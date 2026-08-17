@@ -45,7 +45,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T05 Project Registry API — source implemented; full Vitest verification pending npm registry access
 - [ ] P1-T06 Google OAuth connection + local authorization helper — source/tests implemented; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T07 Search Console date windows — source/tests implemented; runtime smoke verified; full Vitest verification pending PatchSync/local npm install
-- [ ] P1-T08 Search Analytics REST client
+- [ ] P1-T08 Search Analytics REST client — source/tests implemented; runtime smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T09 Search Analytics historical collection + upserts
 - [ ] P1-T10 Core URL Inspection collection
 - [ ] P1-T11 GSC Sitemap collection
