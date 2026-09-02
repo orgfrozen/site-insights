@@ -13,6 +13,7 @@ export interface DailyAnalysisSnapshot {
   patchsyncTaskId: string | null;
   dispatchErrorCode: string | null;
   dispatchedAt: string | null;
+  taskRefreshPending: boolean;
   updatedAt: string;
 }
 
@@ -39,6 +40,7 @@ interface DailyAnalysisRow {
   patchsync_task_id: string | null;
   dispatch_error_code: string | null;
   dispatched_at: string | null;
+  task_refresh_pending: number;
   updated_at: string;
 }
 
@@ -65,6 +67,7 @@ function mapRow(row: DailyAnalysisRow): DailyAnalysisSnapshot {
     patchsyncTaskId: row.patchsync_task_id,
     dispatchErrorCode: row.dispatch_error_code,
     dispatchedAt: row.dispatched_at,
+    taskRefreshPending: row.task_refresh_pending === 1,
     updatedAt: row.updated_at,
   };
 }
@@ -102,6 +105,29 @@ export class DailyAnalysisRepository {
       JSON.stringify(input.snapshotJson),
       now,
     ).run();
+
+    // The first snapshot remains canonical unless the day's collection later
+    // improves from failed/partial to succeeded. That one-way upgrade keeps
+    // same-day idempotency while replacing incomplete facts with final data.
+    if (input.collectionStatus === "succeeded") {
+      await this.db.prepare(`
+        UPDATE daily_analysis_snapshots
+        SET data_through = ?, collection_status = 'succeeded', generated_at = ?,
+            snapshot_markdown = ?, snapshot_json = ?, dispatch_status = 'pending',
+            dispatch_error_code = NULL, task_refresh_pending = 1, updated_at = ?
+        WHERE project_id = ? AND analysis_date = ?
+          AND collection_status IN ('partial', 'failed')
+      `).bind(
+        input.dataThrough,
+        input.generatedAt,
+        input.snapshotMarkdown,
+        JSON.stringify(input.snapshotJson),
+        now,
+        input.projectId,
+        input.analysisDate,
+      ).run();
+    }
+
     const snapshot = await this.get(input.projectId, input.analysisDate);
     if (!snapshot) throw new Error("daily_analysis_snapshot_create_failed");
     return snapshot;
@@ -117,7 +143,7 @@ export class DailyAnalysisRepository {
     await this.db.prepare(`
       UPDATE daily_analysis_snapshots
       SET dispatch_status = 'succeeded', patchsync_task_id = ?, dispatch_error_code = NULL,
-          dispatched_at = ?, updated_at = ?
+          dispatched_at = ?, task_refresh_pending = 0, updated_at = ?
       WHERE project_id = ? AND analysis_date = ?
     `).bind(taskId, timestamp, timestamp, projectId, analysisDate).run();
   }

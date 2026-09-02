@@ -177,6 +177,55 @@ describe("daily analysis snapshot", () => {
     expect(second.snapshotMarkdown).toBe("first snapshot");
     expect(second.dataThrough).toBe("2026-08-30");
   });
+
+  it("upgrades a same-day partial snapshot once when collection later succeeds", async () => {
+    await new ProjectRepository(env.DB).createProject(projectInput("vetatool-upgrade"));
+    const repository = new DailyAnalysisRepository(env.DB);
+    await repository.getOrCreate({
+      projectId: "vetatool-upgrade",
+      analysisDate: "2026-09-01",
+      dataThrough: null,
+      collectionStatus: "partial",
+      snapshotMarkdown: "partial snapshot",
+      snapshotJson: { version: 1, state: "partial" },
+      generatedAt: "2026-09-01T01:00:00.000Z",
+    });
+    await repository.markDispatchSucceeded(
+      "vetatool-upgrade",
+      "2026-09-01",
+      "task_existing",
+      new Date("2026-09-01T01:05:00.000Z"),
+    );
+
+    const upgraded = await repository.getOrCreate({
+      projectId: "vetatool-upgrade",
+      analysisDate: "2026-09-01",
+      dataThrough: "2026-08-30",
+      collectionStatus: "succeeded",
+      snapshotMarkdown: "succeeded snapshot",
+      snapshotJson: { version: 1, state: "succeeded" },
+      generatedAt: "2026-09-01T02:00:00.000Z",
+    });
+
+    expect(upgraded.collectionStatus).toBe("succeeded");
+    expect(upgraded.dataThrough).toBe("2026-08-30");
+    expect(upgraded.snapshotMarkdown).toBe("succeeded snapshot");
+    expect(upgraded.patchsyncTaskId).toBe("task_existing");
+    expect(upgraded.dispatchStatus).toBe("pending");
+    expect(upgraded.taskRefreshPending).toBe(true);
+
+    const repeated = await repository.getOrCreate({
+      projectId: "vetatool-upgrade",
+      analysisDate: "2026-09-01",
+      dataThrough: "2026-08-31",
+      collectionStatus: "succeeded",
+      snapshotMarkdown: "later succeeded snapshot",
+      snapshotJson: { version: 1, state: "later" },
+      generatedAt: "2026-09-01T03:00:00.000Z",
+    });
+    expect(repeated.snapshotMarkdown).toBe("succeeded snapshot");
+    expect(repeated.dataThrough).toBe("2026-08-30");
+  });
 });
 
 describe("daily analysis dispatch", () => {
@@ -270,6 +319,182 @@ describe("daily analysis dispatch", () => {
       created: false,
     });
     expect(getCount).toBe(2);
+  });
+
+  it("attaches one succeeded snapshot upgrade to the existing same-day task", async () => {
+    await new ProjectRepository(env.DB).createProject(projectInput("vetatool-refresh"));
+    const repository = new DailyAnalysisRepository(env.DB);
+    await repository.getOrCreate({
+      projectId: "vetatool-refresh",
+      analysisDate: "2026-09-01",
+      dataThrough: null,
+      collectionStatus: "partial",
+      snapshotMarkdown: "partial snapshot",
+      snapshotJson: { version: 1 },
+      generatedAt: "2026-09-01T01:00:00.000Z",
+    });
+    await repository.markDispatchSucceeded(
+      "vetatool-refresh",
+      "2026-09-01",
+      "task_existing",
+      new Date("2026-09-01T01:05:00.000Z"),
+    );
+
+    const calls: Array<{ method: string; url: string; body?: Record<string, unknown> }> = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined;
+      calls.push({ method, url, body });
+      if (method === "GET" && url.endsWith("/v1/tasks/task_existing/evidence")) {
+        return Response.json({ evidence: [] });
+      }
+      if (method === "GET") {
+        return Response.json({ tasks: [{ task_id: "task_existing" }], next_before: null });
+      }
+      if (method === "POST" && url.endsWith("/v1/tasks/task_existing/evidence")) {
+        return Response.json({ evidence: { evidence_id: "evidence_upgrade" } }, { status: 201 });
+      }
+      throw new Error(`unexpected request ${method} ${url}`);
+    };
+
+    const succeededReport = report();
+    succeededReport.project.id = "vetatool-refresh";
+    succeededReport.project.name = "vetatool-refresh";
+    succeededReport.project.domain = "vetatool-refresh.com";
+    succeededReport.project.baseUrl = "https://vetatool-refresh.com";
+
+    const result = await dispatchDailyAnalysis(
+      projectInput("vetatool-refresh") as never,
+      env as SiteInsightsEnv & Record<string, string>,
+      {
+        collectionStatus: "succeeded",
+        now: new Date("2026-09-01T02:00:00Z"),
+        fetcher,
+        statusReport: succeededReport,
+        configuration: {
+          baseUrl: "https://patchsync-status.test",
+          token: "test-token",
+          agentId: "ewan-macbook",
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ status: "succeeded", taskId: "task_existing", created: false });
+    expect(calls.map((call) => call.method)).toEqual(["GET", "GET", "POST"]);
+    expect(calls[1].url).toBe("https://patchsync-status.test/v1/tasks/task_existing/evidence");
+    expect(calls[2].url).toBe("https://patchsync-status.test/v1/tasks/task_existing/evidence");
+    expect(calls[2].body).toMatchObject({
+      evidence_type: "site_insights.daily_snapshot_upgrade",
+      source: "site_insights",
+      payload: {
+        analysis_date: "2026-09-01",
+        data_through: "2026-08-30",
+        collection_status: "succeeded",
+        supersedes_embedded_snapshot: true,
+      },
+    });
+
+    const callsAfterUpgrade = calls.length;
+    const repeated = await dispatchDailyAnalysis(
+      projectInput("vetatool-refresh") as never,
+      env as SiteInsightsEnv & Record<string, string>,
+      {
+        collectionStatus: "succeeded",
+        now: new Date("2026-09-01T03:00:00Z"),
+        fetcher,
+        statusReport: succeededReport,
+        configuration: {
+          baseUrl: "https://patchsync-status.test",
+          token: "test-token",
+          agentId: "ewan-macbook",
+        },
+      },
+    );
+    expect(repeated).toMatchObject({ status: "succeeded", taskId: "task_existing", created: false });
+    expect(calls).toHaveLength(callsAfterUpgrade);
+  });
+
+  it("reconciles same-day upgrade evidence after a lost evidence response", async () => {
+    await new ProjectRepository(env.DB).createProject(projectInput("vetatool-refresh-loss"));
+    const repository = new DailyAnalysisRepository(env.DB);
+    await repository.getOrCreate({
+      projectId: "vetatool-refresh-loss",
+      analysisDate: "2026-09-01",
+      dataThrough: null,
+      collectionStatus: "partial",
+      snapshotMarkdown: "partial snapshot",
+      snapshotJson: { version: 1 },
+      generatedAt: "2026-09-01T01:00:00.000Z",
+    });
+    await repository.markDispatchSucceeded(
+      "vetatool-refresh-loss",
+      "2026-09-01",
+      "task_existing_loss",
+      new Date("2026-09-01T01:05:00.000Z"),
+    );
+
+    const succeededReport = report();
+    succeededReport.project.id = "vetatool-refresh-loss";
+    succeededReport.project.name = "vetatool-refresh-loss";
+    succeededReport.project.domain = "vetatool-refresh-loss.com";
+    succeededReport.project.baseUrl = "https://vetatool-refresh-loss.com";
+
+    let evidenceRecorded = false;
+    let evidencePostCount = 0;
+    const fetcher: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/v1/tasks/task_existing_loss/evidence")) {
+        return Response.json({
+          evidence: evidenceRecorded
+            ? [{
+                evidence_type: "site_insights.daily_snapshot_upgrade",
+                source: "site_insights",
+                payload: {
+                  snapshot_key: "site-insights:vetatool-refresh-loss:daily:2026-09-01:succeeded",
+                },
+              }]
+            : [],
+        });
+      }
+      if (method === "GET") {
+        return Response.json({ tasks: [{ task_id: "task_existing_loss" }], next_before: null });
+      }
+      if (method === "POST" && url.endsWith("/v1/tasks/task_existing_loss/evidence")) {
+        evidencePostCount += 1;
+        evidenceRecorded = true;
+        throw new TypeError("network response lost");
+      }
+      throw new Error(`unexpected request ${method} ${url}`);
+    };
+
+    const commonInput = {
+      collectionStatus: "succeeded" as const,
+      fetcher,
+      statusReport: succeededReport,
+      configuration: {
+        baseUrl: "https://patchsync-status.test",
+        token: "test-token",
+        agentId: "ewan-macbook",
+      },
+    };
+    const first = await dispatchDailyAnalysis(
+      projectInput("vetatool-refresh-loss") as never,
+      env as SiteInsightsEnv & Record<string, string>,
+      { ...commonInput, now: new Date("2026-09-01T02:00:00Z") },
+    );
+    expect(first).toMatchObject({ status: "failed", errorCode: "patchsync_dispatch_failed" });
+
+    const second = await dispatchDailyAnalysis(
+      projectInput("vetatool-refresh-loss") as never,
+      env as SiteInsightsEnv & Record<string, string>,
+      { ...commonInput, now: new Date("2026-09-01T02:05:00Z") },
+    );
+    expect(second).toMatchObject({ status: "succeeded", taskId: "task_existing_loss", created: false });
+    expect(evidencePostCount).toBe(1);
+    const stored = await repository.get("vetatool-refresh-loss", "2026-09-01");
+    expect(stored?.taskRefreshPending).toBe(false);
   });
 
 });
