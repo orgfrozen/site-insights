@@ -78,6 +78,11 @@ async function seedDimensionRows(projectId: string): Promise<void> {
       VALUES (?, '2026-08-15', 'web', 'https://zeroparse.com/big-json-viewer', 6, 120, 0.05, 9, ?)
     `).bind(projectId, collectedAt),
     env.DB.prepare(`
+      INSERT INTO gsc_query_page_metrics
+        (project_id, data_date, search_type, query, page, clicks, impressions, ctr, position, collected_at)
+      VALUES (?, '2026-08-15', 'web', 'large json viewer', 'https://zeroparse.com/big-json-viewer', 5, 100, 0.05, 8, ?)
+    `).bind(projectId, collectedAt),
+    env.DB.prepare(`
       INSERT INTO gsc_country_metrics
         (project_id, data_date, search_type, country, clicks, impressions, ctr, position, collected_at)
       VALUES (?, '2026-08-15', 'web', 'usa', 4, 90, 0.0444444444, 11, ?)
@@ -270,6 +275,12 @@ describe("read-only project status API", () => {
       page: "https://zeroparse.com/big-json-viewer",
       clicks: 6,
       impressions: 120,
+    });
+    expect(body.topQueryPages[0]).toMatchObject({
+      query: "large json viewer",
+      page: "https://zeroparse.com/big-json-viewer",
+      clicks: 5,
+      impressions: 100,
     });
     expect(body.countries[0]).toMatchObject({ country: "usa", impressions: 90 });
     expect(body.devices[0]).toMatchObject({ device: "DESKTOP", impressions: 110 });

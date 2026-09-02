@@ -61,6 +61,7 @@ export interface ProjectStatusReport {
   };
   topQueries: Array<DimensionMetric & { query: string }>;
   topPages: Array<DimensionMetric & { page: string }>;
+  topQueryPages: Array<DimensionMetric & { query: string; page: string }>;
   countries: Array<DimensionMetric & { country: string }>;
   devices: Array<DimensionMetric & { device: string }>;
   coreUrls: Array<Record<string, unknown>>;
@@ -239,6 +240,36 @@ export class StatusRepository {
     })) as Array<DimensionMetric & Record<typeof dimension, string>>;
   }
 
+
+  private async aggregateQueryPages(
+    projectId: string,
+    period: DatePeriod,
+  ): Promise<Array<DimensionMetric & { query: string; page: string }>> {
+    const rows = await this.db.prepare(`
+      SELECT
+        query,
+        page,
+        COALESCE(SUM(clicks), 0) AS clicks,
+        COALESCE(SUM(impressions), 0) AS impressions,
+        CASE WHEN SUM(impressions) > 0
+          THEN SUM(position * impressions) / SUM(impressions)
+          ELSE NULL END AS position
+      FROM gsc_query_page_metrics
+      WHERE project_id = ?
+        AND search_type = 'web'
+        AND data_date BETWEEN ? AND ?
+      GROUP BY query, page
+      ORDER BY impressions DESC, clicks DESC, query ASC, page ASC
+      LIMIT 25
+    `).bind(projectId, period.startDate, period.endDate).all<MetricRow & { query: string; page: string }>();
+
+    return rows.results.map((row) => ({
+      query: row.query,
+      page: row.page,
+      ...normalizeMetrics(row),
+    }));
+  }
+
   private async latestInspections(projectId: string): Promise<Array<Record<string, unknown>>> {
     const rows = await this.db.prepare(`
       SELECT i.*
@@ -342,6 +373,7 @@ export class StatusRepository {
     let previous28 = { ...ZERO_METRICS };
     let topQueries: Array<DimensionMetric & { query: string }> = [];
     let topPages: Array<DimensionMetric & { page: string }> = [];
+    let topQueryPages: Array<DimensionMetric & { query: string; page: string }> = [];
     let countries: Array<DimensionMetric & { country: string }> = [];
     let devices: Array<DimensionMetric & { device: string }> = [];
 
@@ -364,6 +396,7 @@ export class StatusRepository {
         previous28,
         topQueries,
         topPages,
+        topQueryPages,
         countries,
         devices,
       ] = await Promise.all([
@@ -373,6 +406,7 @@ export class StatusRepository {
         this.aggregatePeriod(projectId, periods.previous28),
         this.aggregateDimension(projectId, periods.last28, "query"),
         this.aggregateDimension(projectId, periods.last28, "page"),
+        this.aggregateQueryPages(projectId, periods.last28),
         this.aggregateDimension(projectId, periods.last28, "country"),
         this.aggregateDimension(projectId, periods.last28, "device"),
       ]);
@@ -407,6 +441,7 @@ export class StatusRepository {
       },
       topQueries,
       topPages,
+      topQueryPages,
       countries,
       devices,
       coreUrls,

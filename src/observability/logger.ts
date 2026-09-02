@@ -6,6 +6,9 @@ export type ConfigurationPresence = {
   googleRefreshToken: boolean;
   adminApiToken: boolean;
   readApiToken: boolean;
+  patchsyncStatusBaseUrl: boolean;
+  patchsyncStatusToken: boolean;
+  patchsyncStatusAgentId: boolean;
 };
 
 function isConfigured(value: string | undefined): boolean {
@@ -19,6 +22,9 @@ export function configurationPresence(env: SiteInsightsEnv): ConfigurationPresen
     googleRefreshToken: isConfigured(env.GOOGLE_REFRESH_TOKEN),
     adminApiToken: isConfigured(env.ADMIN_API_TOKEN),
     readApiToken: isConfigured(env.READ_API_TOKEN),
+    patchsyncStatusBaseUrl: isConfigured(env.PATCHSYNC_STATUS_BASE_URL),
+    patchsyncStatusToken: isConfigured(env.PATCHSYNC_STATUS_TOKEN),
+    patchsyncStatusAgentId: isConfigured(env.PATCHSYNC_STATUS_AGENT_ID),
   };
 }
 

@@ -5,13 +5,14 @@ Multi-site SEO / growth data foundation for Cloudflare Workers.
 This repository is the initialized Phase 1 foundation. It currently includes:
 
 - Cloudflare Worker entry point and public `GET /health`
-- Cloudflare D1 schema for projects, core URLs, GSC metrics, URL inspections, sitemap snapshots, and collection runs
+- Cloudflare D1 schema for projects, core URLs, GSC metrics, URL inspections, sitemap snapshots, collection runs, and frozen daily analysis snapshots
 - Multi-site Project Registry repository and admin API
 - Separate admin/read-only Bearer-token boundaries
 - Validation for project domains, HTTPS URLs, sitemap/robots hosts, languages, and core URLs
 - Phase 1 architecture, implementation plan, and Master Map
+- Daily Site Insights snapshot generation and PatchSync Status Task dispatch after each scheduled Project collection
 
-Google OAuth, Search Console collection, scheduler orchestration, reporting aggregation, and production deployment are the next Phase 1 tasks.
+Google OAuth, Search Console collection, scheduler orchestration, reporting aggregation, and daily PatchSync Task dispatch are implemented in source. Production deployment, real GSC smoke tests, and production PatchSync credentials/configuration remain environment tasks.
 
 ## Requirements
 
@@ -77,11 +78,30 @@ npx wrangler secret put READ_API_TOKEN
 
 Do not commit real token values.
 
+## Configure PatchSync Status daily analysis dispatch
+
+After each scheduled collection finishes for an enabled Project—and after an authenticated manual GSC collection finishes—site-insights always freezes one Daily Analysis Snapshot for that Project's local calendar date and dispatches one source-aware Task to patchsync-status. There is no "is this worth analyzing?" gate. The deterministic `source_ref` is `site-insights:<project_id>:daily:<YYYY-MM-DD>`, so repeated Cron runs reconcile the same Task instead of creating duplicates. Collection failures/partial runs still produce a Task so the code agent can analyze stale/missing data and source health explicitly.
+
+Configure the control-plane endpoint, its bearer token, and the Agent that should receive the ready Task:
+
+```bash
+npx wrangler secret put PATCHSYNC_STATUS_BASE_URL
+npx wrangler secret put PATCHSYNC_STATUS_TOKEN
+npx wrangler secret put PATCHSYNC_STATUS_AGENT_ID
+```
+
+`PATCHSYNC_STATUS_TOKEN` must be the patchsync-status `CONTROL_PLANE_TOKEN`. `PATCHSYNC_STATUS_AGENT_ID` should be a registered Agent ID such as the Browser Runner Agent. Real values must not be committed. When any of these three settings is missing, GSC collection still completes, the frozen snapshot is retained in D1, and dispatch is recorded as `patchsync_configuration_missing` instead of failing the collector.
+
+The generated Task embeds a compact Markdown snapshot containing 7/28-day comparisons, top queries/pages/query→page pairs, country/device breakdowns, core URL indexing, sitemaps, and collection health. The Task instructs the code agent to inspect the latest exported source and choose at most one highest-value action. If the data/source does not justify a code change, it explicitly allows a no-Patch analysis conclusion instead of forcing a modification.
+
 For local development, create `.dev.vars` (already ignored by git):
 
 ```dotenv
 ADMIN_API_TOKEN=replace-with-local-admin-token
 READ_API_TOKEN=replace-with-local-read-token
+PATCHSYNC_STATUS_BASE_URL=https://your-patchsync-status.example
+PATCHSYNC_STATUS_TOKEN=replace-with-local-control-plane-token
+PATCHSYNC_STATUS_AGENT_ID=your-agent-id
 ```
 
 ## Configure Google Search Console OAuth

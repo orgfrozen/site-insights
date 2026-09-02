@@ -1,4 +1,6 @@
 import type { Project } from "../domain/types";
+import { dispatchDailyAnalysis, type DailyAnalysisDispatchInput, type DailyAnalysisDispatchResult } from "../analysis/daily-analysis";
+import { logEvent } from "../observability/logger";
 import type { SiteInsightsEnv } from "../env";
 import { ProjectRepository } from "../projects/project-repository";
 import {
@@ -14,6 +16,12 @@ export interface SchedulerSummary {
   failed: number;
 }
 
+type AnalysisDispatcher = (
+  project: Project,
+  env: SiteInsightsEnv,
+  input: DailyAnalysisDispatchInput,
+) => Promise<DailyAnalysisDispatchResult>;
+
 type ProjectCollector = (
   project: Project,
   env: SiteInsightsEnv,
@@ -22,6 +30,7 @@ type ProjectCollector = (
 
 export interface SchedulerDependencies {
   collectProject?: ProjectCollector;
+  dispatchAnalysis?: AnalysisDispatcher;
 }
 
 export async function runScheduledCollection(
@@ -37,13 +46,25 @@ export async function runScheduledCollection(
     failed: 0,
   };
   const collectProject = dependencies.collectProject ?? collectProjectGsc;
+  const dispatchAnalysis = dependencies.dispatchAnalysis ?? dispatchDailyAnalysis;
 
   for (const project of projects) {
+    let collectionStatus: ProjectCollectionSummary["status"] = "failed";
     try {
       const result = await collectProject(project, env, { triggerType: "cron" });
+      collectionStatus = result.status;
       summary[result.status] += 1;
     } catch {
       summary.failed += 1;
+    }
+
+    try {
+      await dispatchAnalysis(project, env, { collectionStatus });
+    } catch {
+      logEvent("daily_analysis_dispatch_unexpected_error", {
+        projectId: project.id,
+        collectionStatus,
+      });
     }
   }
 

@@ -1,0 +1,383 @@
+import type { Project } from "../domain/types";
+import type { SiteInsightsEnv } from "../env";
+import { logEvent } from "../observability/logger";
+import { StatusRepository, type ProjectStatusReport, type SearchMetrics } from "../reporting/status-repository";
+import { DailyAnalysisRepository } from "./daily-analysis-repository";
+
+type Fetcher = typeof fetch;
+type CollectionStatus = "succeeded" | "partial" | "failed";
+
+export interface PatchSyncStatusConfiguration {
+  baseUrl: string;
+  token: string;
+  agentId: string;
+}
+
+export interface DailyAnalysisDispatchInput {
+  collectionStatus: CollectionStatus;
+  now?: Date;
+  fetcher?: Fetcher;
+  statusReport?: ProjectStatusReport;
+  configuration?: PatchSyncStatusConfiguration;
+}
+
+export interface DailyAnalysisDispatchResult {
+  status: "succeeded" | "failed";
+  taskId?: string;
+  created?: boolean;
+  errorCode?: string;
+  analysisDate: string;
+}
+
+export interface BuildSnapshotOptions {
+  analysisDate: string;
+  collectionStatus: CollectionStatus;
+}
+
+export interface DailyAnalysisTaskInput {
+  project_id: string;
+  agent_id: string;
+  title: string;
+  goal: string;
+  task_type: "improvement";
+  source_type: "api";
+  source_ref: string;
+  instructions: string[];
+  acceptance: { require_analysis: true };
+}
+
+function configured(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function envConfiguration(env: SiteInsightsEnv): PatchSyncStatusConfiguration | null {
+  const baseUrl = configured(env.PATCHSYNC_STATUS_BASE_URL);
+  const token = configured(env.PATCHSYNC_STATUS_TOKEN);
+  const agentId = configured(env.PATCHSYNC_STATUS_AGENT_ID);
+  return baseUrl && token && agentId ? { baseUrl, token, agentId } : null;
+}
+
+function withoutTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+}
+
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+function formatChange(value: number | null, suffix = "%"): string {
+  if (value === null) return "n/a";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}${suffix}`;
+}
+
+function metricLine(label: string, metrics: SearchMetrics): string {
+  return `- ${label}: clicks ${formatNumber(metrics.clicks)}, impressions ${formatNumber(metrics.impressions)}, CTR ${formatPercent(metrics.ctr)}, position ${metrics.position === null ? "n/a" : metrics.position.toFixed(2)}`;
+}
+
+function tableCell(value: unknown): string {
+  return String(value ?? "").replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
+}
+
+function metricRows<T extends Record<string, unknown>>(
+  rows: T[],
+  keys: Array<keyof T>,
+  limit: number,
+): string[] {
+  return rows.slice(0, limit).map((row) => {
+    const dimensions = keys.map((key) => tableCell(row[key]));
+    const clicks = Number(row.clicks ?? 0);
+    const impressions = Number(row.impressions ?? 0);
+    const ctr = Number(row.ctr ?? 0);
+    const position = row.position === null || row.position === undefined ? "n/a" : Number(row.position).toFixed(2);
+    return `| ${dimensions.join(" | ")} | ${formatNumber(clicks)} | ${formatNumber(impressions)} | ${formatPercent(ctr)} | ${position} |`;
+  });
+}
+
+function capSnapshot(markdown: string, maxLength = 5600): string {
+  if (markdown.length <= maxLength) return markdown;
+  return `${markdown.slice(0, maxLength - 80).trimEnd()}\n\n[Snapshot truncated to fit PatchSync Task Contract.]`;
+}
+
+export function dailyAnalysisDate(now: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+export function dailyAnalysisSourceRef(projectId: string, analysisDate: string): string {
+  return `site-insights:${projectId}:daily:${analysisDate}`;
+}
+
+export function buildDailyAnalysisMarkdown(
+  report: ProjectStatusReport,
+  options: BuildSnapshotOptions,
+): string {
+  const lines: string[] = [
+    `# Site Insights Daily Snapshot — ${report.project.name}`,
+    "",
+    `Analysis date: ${options.analysisDate}`,
+    `Generated at: ${report.generatedAt}`,
+    `Data through: ${report.dataThrough ?? "no final GSC data"}`,
+    `Collection result: ${options.collectionStatus}`,
+    "",
+    "## Search summary",
+    metricLine("Latest final day", report.search.latestDay),
+    metricLine("Last 7 days", report.search.last7),
+    metricLine("Previous 7 days", report.search.previous7),
+    `- 7d delta: clicks ${formatChange(report.search.deltas.last7VsPrevious7.clicksPercent)}, impressions ${formatChange(report.search.deltas.last7VsPrevious7.impressionsPercent)}, CTR ${formatChange(report.search.deltas.last7VsPrevious7.ctrPointDelta * 100, "pp")}, position ${formatChange(report.search.deltas.last7VsPrevious7.positionDelta, "")}`,
+    metricLine("Last 28 days", report.search.last28),
+    metricLine("Previous 28 days", report.search.previous28),
+    `- 28d delta: clicks ${formatChange(report.search.deltas.last28VsPrevious28.clicksPercent)}, impressions ${formatChange(report.search.deltas.last28VsPrevious28.impressionsPercent)}, CTR ${formatChange(report.search.deltas.last28VsPrevious28.ctrPointDelta * 100, "pp")}, position ${formatChange(report.search.deltas.last28VsPrevious28.positionDelta, "")}`,
+    "",
+    "## Top queries (28d)",
+    "| Query | Clicks | Impressions | CTR | Position |",
+    "| --- | ---: | ---: | ---: | ---: |",
+    ...metricRows(report.topQueries, ["query"], 10),
+    "",
+    "## Top pages (28d)",
+    "| Page | Clicks | Impressions | CTR | Position |",
+    "| --- | ---: | ---: | ---: | ---: |",
+    ...metricRows(report.topPages, ["page"], 10),
+    "",
+    "## Top query → page pairs (28d)",
+    "| Query | Page | Clicks | Impressions | CTR | Position |",
+    "| --- | --- | ---: | ---: | ---: | ---: |",
+    ...metricRows(report.topQueryPages, ["query", "page"], 10),
+    "",
+    "## Geography / device",
+    "Top countries:",
+    ...report.countries.slice(0, 5).map((row) => `- ${row.country}: impressions ${formatNumber(row.impressions)}, clicks ${formatNumber(row.clicks)}, CTR ${formatPercent(row.ctr)}, position ${row.position === null ? "n/a" : row.position.toFixed(2)}`),
+    "Top devices:",
+    ...report.devices.slice(0, 5).map((row) => `- ${row.device}: impressions ${formatNumber(row.impressions)}, clicks ${formatNumber(row.clicks)}, CTR ${formatPercent(row.ctr)}, position ${row.position === null ? "n/a" : row.position.toFixed(2)}`),
+    "",
+    "## Core URL indexing",
+    ...report.coreUrls.slice(0, 20).map((row) => `- ${tableCell(row.url)}: verdict=${tableCell(row.verdict) || "unknown"}; coverage=${tableCell(row.coverageState) || "unknown"}; googleCanonical=${tableCell(row.googleCanonical) || "unknown"}; userCanonical=${tableCell(row.userCanonical) || "unknown"}`),
+    "",
+    "## Sitemaps",
+    ...report.sitemaps.slice(0, 10).map((row) => `- ${tableCell(row.path)}: errors=${tableCell(row.errors)}; warnings=${tableCell(row.warnings)}; pending=${tableCell(row.isPending)}; lastDownloaded=${tableCell(row.lastDownloaded) || "unknown"}`),
+    "",
+    "## Collection health",
+    ...Object.entries(report.sources).map(([source, state]) => state.status === "never_collected"
+      ? `- ${source}: never_collected`
+      : `- ${source}: ${state.status}; records=${state.recordsWritten}; error=${state.errorCode ?? "none"}`),
+  ];
+
+  if (report.coreUrls.length === 0) lines.push("- No core URL inspection data is available.");
+  if (report.sitemaps.length === 0) lines.push("- No sitemap snapshot is available.");
+  if (report.topQueries.length === 0) lines.push("- No query metrics are available yet.");
+  return capSnapshot(lines.join("\n"));
+}
+
+export function buildDailyAnalysisTask(input: {
+  projectId: string;
+  projectName: string;
+  analysisDate: string;
+  agentId: string;
+  snapshotMarkdown: string;
+}): DailyAnalysisTaskInput {
+  const goal = [
+    `分析 site-insights 在 ${input.analysisDate} 为 ${input.projectName} 生成的最新 Daily Snapshot，并结合本次 ${input.projectName} 最新源码，判断下一步最值得做的一个优化。`,
+    "必须理解当前源码已有功能、SEO/页面架构和现有约束，避免重复实现已经存在的能力。不要只根据单一指标机械修改；综合数据事实、源码现状和投入产出比做决策。",
+    "如果存在明确且适合代码实现的高价值优化，直接实现、测试并按当前 LLM_RULES 生成 Patch。一次只做一个最高价值改动。",
+    "如果数据或源码表明当前不应修改代码，或者最合理动作需要更多数据/外部条件，不要为了产生 Patch 强行修改；说明数据事实、判断依据和后续观察项，然后正常完成 Task。",
+    "完成时说明：观察到的数据事实、为什么选择该动作、实现内容（如有）、预期影响指标、建议观察的时间窗口。",
+    "",
+    input.snapshotMarkdown,
+  ].join("\n\n");
+  if (goal.length > 8000) throw new Error("daily_analysis_task_goal_too_large");
+
+  return {
+    project_id: input.projectId,
+    agent_id: input.agentId,
+    title: `${input.projectName} Site Insights daily analysis · ${input.analysisDate}`,
+    goal,
+    task_type: "improvement",
+    source_type: "api",
+    source_ref: dailyAnalysisSourceRef(input.projectId, input.analysisDate),
+    instructions: [
+      "Treat the Site Insights snapshot as collected facts; do not invent missing measurements.",
+      "Read the exported latest project source before selecting an implementation action.",
+      "Choose at most one highest-value action for this Task.",
+    ],
+    acceptance: { require_analysis: true },
+  };
+}
+
+function stableHttpError(response: Response): string {
+  if (response.status === 401 || response.status === 403) return "patchsync_auth_failed";
+  if (response.status === 404) return "patchsync_project_or_endpoint_not_found";
+  if (response.status === 409) return "patchsync_task_conflict";
+  if (response.status >= 500) return "patchsync_server_error";
+  return "patchsync_request_failed";
+}
+
+async function findExistingTask(
+  configuration: PatchSyncStatusConfiguration,
+  projectId: string,
+  sourceRef: string,
+  fetcher: Fetcher,
+): Promise<string | null> {
+  const url = new URL(`${withoutTrailingSlash(configuration.baseUrl)}/v1/tasks`);
+  url.searchParams.set("project_id", projectId);
+  url.searchParams.set("source_type", "api");
+  url.searchParams.set("source_ref", sourceRef);
+  url.searchParams.set("limit", "1");
+  const response = await fetcher(url.toString(), {
+    headers: { authorization: `Bearer ${configuration.token}` },
+  });
+  if (!response.ok) throw new Error(stableHttpError(response));
+  const body = await response.json() as { tasks?: Array<{ task_id?: unknown }> };
+  const taskId = body.tasks?.[0]?.task_id;
+  return typeof taskId === "string" && taskId.length > 0 ? taskId : null;
+}
+
+async function createTask(
+  configuration: PatchSyncStatusConfiguration,
+  task: DailyAnalysisTaskInput,
+  fetcher: Fetcher,
+): Promise<string> {
+  const response = await fetcher(`${withoutTrailingSlash(configuration.baseUrl)}/v1/tasks`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${configuration.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(task),
+  });
+  if (!response.ok) throw new Error(stableHttpError(response));
+  const body = await response.json() as { task?: { task_id?: unknown } };
+  const taskId = body.task?.task_id;
+  if (typeof taskId !== "string" || taskId.length === 0) throw new Error("patchsync_invalid_task_response");
+  return taskId;
+}
+
+function stableDispatchError(error: unknown): string {
+  if (error instanceof Error && /^[a-z0-9_]+$/.test(error.message)) return error.message;
+  return "patchsync_dispatch_failed";
+}
+
+export async function dispatchDailyAnalysis(
+  project: Project,
+  env: SiteInsightsEnv,
+  input: DailyAnalysisDispatchInput,
+): Promise<DailyAnalysisDispatchResult> {
+  const now = input.now ?? new Date();
+  const analysisDate = dailyAnalysisDate(now, project.timezone);
+  const repository = new DailyAnalysisRepository(env.DB);
+  const statusReport = input.statusReport ?? await new StatusRepository(env.DB).getProjectStatus(project.id, now);
+  if (!statusReport) {
+    return { status: "failed", errorCode: "daily_analysis_project_not_found", analysisDate };
+  }
+
+  const markdown = buildDailyAnalysisMarkdown(statusReport, {
+    analysisDate,
+    collectionStatus: input.collectionStatus,
+  });
+  const snapshot = await repository.getOrCreate({
+    projectId: project.id,
+    analysisDate,
+    dataThrough: statusReport.dataThrough,
+    collectionStatus: input.collectionStatus,
+    generatedAt: statusReport.generatedAt,
+    snapshotMarkdown: markdown,
+    snapshotJson: {
+      version: 1,
+      projectId: project.id,
+      analysisDate,
+      dataThrough: statusReport.dataThrough,
+      collectionStatus: input.collectionStatus,
+      report: statusReport,
+    },
+  });
+
+  if (snapshot.dispatchStatus === "succeeded" && snapshot.patchsyncTaskId) {
+    return { status: "succeeded", taskId: snapshot.patchsyncTaskId, created: false, analysisDate };
+  }
+
+  const configuration = input.configuration ?? envConfiguration(env);
+  if (!configuration) {
+    await repository.markDispatchFailed(project.id, analysisDate, "patchsync_configuration_missing", now);
+    logEvent("daily_analysis_dispatch_failed", {
+      projectId: project.id,
+      analysisDate,
+      errorCode: "patchsync_configuration_missing",
+    });
+    return { status: "failed", errorCode: "patchsync_configuration_missing", analysisDate };
+  }
+
+  const fetcher = input.fetcher ?? fetch;
+  const sourceRef = dailyAnalysisSourceRef(project.id, analysisDate);
+  try {
+    const existingTaskId = await findExistingTask(configuration, project.id, sourceRef, fetcher);
+    if (existingTaskId) {
+      await repository.markDispatchSucceeded(project.id, analysisDate, existingTaskId, now);
+      logEvent("daily_analysis_task_reconciled", {
+        projectId: project.id,
+        analysisDate,
+        taskId: existingTaskId,
+      });
+      return { status: "succeeded", taskId: existingTaskId, created: false, analysisDate };
+    }
+
+    const task = buildDailyAnalysisTask({
+      projectId: project.id,
+      projectName: project.name,
+      analysisDate,
+      agentId: configuration.agentId,
+      snapshotMarkdown: snapshot.snapshotMarkdown,
+    });
+    let taskId: string;
+    try {
+      taskId = await createTask(configuration, task, fetcher);
+    } catch (createError) {
+      // A POST may have reached patchsync-status even when its response was lost.
+      // Reconcile by the deterministic source_ref before declaring failure so a
+      // network edge cannot create an invisible duplicate on a later retry.
+      try {
+        const reconciledTaskId = await findExistingTask(configuration, project.id, sourceRef, fetcher);
+        if (reconciledTaskId) {
+          await repository.markDispatchSucceeded(project.id, analysisDate, reconciledTaskId, now);
+          logEvent("daily_analysis_task_reconciled", {
+            projectId: project.id,
+            analysisDate,
+            taskId: reconciledTaskId,
+            afterCreateFailure: true,
+          });
+          return { status: "succeeded", taskId: reconciledTaskId, created: false, analysisDate };
+        }
+      } catch {
+        // Preserve the original create error; reconciliation is best-effort.
+      }
+      throw createError;
+    }
+    await repository.markDispatchSucceeded(project.id, analysisDate, taskId, now);
+    logEvent("daily_analysis_task_created", {
+      projectId: project.id,
+      analysisDate,
+      taskId,
+      dataThrough: snapshot.dataThrough,
+      collectionStatus: snapshot.collectionStatus,
+    });
+    return { status: "succeeded", taskId, created: true, analysisDate };
+  } catch (error) {
+    const errorCode = stableDispatchError(error);
+    await repository.markDispatchFailed(project.id, analysisDate, errorCode, now);
+    logEvent("daily_analysis_dispatch_failed", {
+      projectId: project.id,
+      analysisDate,
+      errorCode,
+    });
+    return { status: "failed", errorCode, analysisDate };
+  }
+}

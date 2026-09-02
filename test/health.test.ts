@@ -13,6 +13,9 @@ function diagnosticEnv(options: {
   googleRefreshToken?: string;
   adminApiToken?: string;
   readApiToken?: string;
+  patchsyncStatusBaseUrl?: string;
+  patchsyncStatusToken?: string;
+  patchsyncStatusAgentId?: string;
 } = {}): SiteInsightsEnv {
   const db = {
     prepare(sql: string) {
@@ -33,6 +36,9 @@ function diagnosticEnv(options: {
     GOOGLE_REFRESH_TOKEN: options.googleRefreshToken ?? "google-refresh-token-value",
     ADMIN_API_TOKEN: options.adminApiToken ?? "admin-token-value",
     READ_API_TOKEN: options.readApiToken ?? "read-token-value",
+    PATCHSYNC_STATUS_BASE_URL: options.patchsyncStatusBaseUrl ?? "https://patchsync-status.test",
+    PATCHSYNC_STATUS_TOKEN: options.patchsyncStatusToken ?? "patchsync-token-value",
+    PATCHSYNC_STATUS_AGENT_ID: options.patchsyncStatusAgentId ?? "ewan-macbook",
     GSC_INITIAL_BACKFILL_DAYS: "56",
     GSC_REFRESH_DAYS: "3",
     GSC_INSPECTION_CONCURRENCY: "3",
@@ -74,6 +80,9 @@ describe("GET /v1/admin/diagnostics", () => {
         googleRefreshToken: true,
         adminApiToken: true,
         readApiToken: true,
+        patchsyncStatusBaseUrl: true,
+        patchsyncStatusToken: true,
+        patchsyncStatusAgentId: true,
       },
     });
 
@@ -83,6 +92,7 @@ describe("GET /v1/admin/diagnostics", () => {
       "google-refresh-token-value",
       "admin-token-value",
       "read-token-value",
+      "patchsync-token-value",
     ]) {
       expect(serialized).not.toContain(value);
     }
@@ -105,6 +115,9 @@ describe("GET /v1/admin/diagnostics", () => {
         googleRefreshToken: true,
         adminApiToken: true,
         readApiToken: true,
+        patchsyncStatusBaseUrl: true,
+        patchsyncStatusToken: true,
+        patchsyncStatusAgentId: true,
       },
     });
     expect(bodyText).not.toContain("database-secret-detail");
@@ -117,6 +130,9 @@ describe("GET /v1/admin/diagnostics", () => {
       googleClientSecret: "",
       googleRefreshToken: "",
       readApiToken: "",
+      patchsyncStatusBaseUrl: "",
+      patchsyncStatusToken: "",
+      patchsyncStatusAgentId: "",
     });
     const response = await routeRequest(new Request("https://site-insights.test/v1/admin/diagnostics", {
       headers: { authorization: "Bearer admin-token-value" },
@@ -130,6 +146,9 @@ describe("GET /v1/admin/diagnostics", () => {
         googleRefreshToken: false,
         adminApiToken: true,
         readApiToken: false,
+        patchsyncStatusBaseUrl: false,
+        patchsyncStatusToken: false,
+        patchsyncStatusAgentId: false,
       },
     });
   });

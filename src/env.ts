@@ -4,6 +4,9 @@ export type SiteInsightsEnv = Env & {
   GOOGLE_REFRESH_TOKEN?: string;
   ADMIN_API_TOKEN?: string;
   READ_API_TOKEN?: string;
+  PATCHSYNC_STATUS_BASE_URL?: string;
+  PATCHSYNC_STATUS_TOKEN?: string;
+  PATCHSYNC_STATUS_AGENT_ID?: string;
   GSC_INITIAL_BACKFILL_DAYS: string;
   GSC_REFRESH_DAYS: string;
   GSC_INSPECTION_CONCURRENCY: string;

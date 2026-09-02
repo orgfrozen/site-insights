@@ -35,6 +35,7 @@ describe("scheduled GSC collection", () => {
     await repository.setProjectStatus("disabled-site", "disabled");
 
     const attempted: string[] = [];
+    const dispatched: Array<[string, string]> = [];
     const summary = await runScheduledCollection(env as SiteInsightsEnv, {
       collectProject: async (project) => {
         attempted.push(project.id);
@@ -45,9 +46,14 @@ describe("scheduled GSC collection", () => {
           sources: {} as never,
         };
       },
+      dispatchAnalysis: async (project, _env, input) => {
+        dispatched.push([project.id, input.collectionStatus]);
+        return { status: "succeeded", taskId: `task_${project.id}`, created: true, analysisDate: "2026-09-01" };
+      },
     });
 
     expect(attempted).toEqual(["vetatool", "zeroparse"]);
+    expect(dispatched).toEqual([["vetatool", "succeeded"], ["zeroparse", "failed"]]);
     expect(summary).toEqual({ total: 2, succeeded: 1, partial: 0, failed: 1 });
   });
 
@@ -104,6 +110,20 @@ describe("manual GSC collection route", () => {
     expect(await response.json()).toMatchObject({
       projectId: "manual-site",
       status: "failed",
+      analysisTask: {
+        status: "failed",
+        errorCode: "patchsync_configuration_missing",
+      },
+    });
+
+    const snapshot = await env.DB.prepare(
+      "SELECT project_id, collection_status, dispatch_status, dispatch_error_code FROM daily_analysis_snapshots WHERE project_id = ?",
+    ).bind("manual-site").first<Record<string, unknown>>();
+    expect(snapshot).toMatchObject({
+      project_id: "manual-site",
+      collection_status: "failed",
+      dispatch_status: "failed",
+      dispatch_error_code: "patchsync_configuration_missing",
     });
 
     const runs = await env.DB.prepare(

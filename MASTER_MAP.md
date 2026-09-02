@@ -21,7 +21,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⛔ Blocked
 | M12 Notification Channels | ⬜ | 2 | Bark first |
 | M13 Reporting API | 🟡 | 1 | Read-only stored GSC status API implemented; full Vitest verification pending |
 | M14 ChatGPT Integration | ⬜ | 1+ | First consumer after API is stable |
-| M15 Agent / PatchSync Integration | ⬜ | 6 | Human approval required |
+| M15 Agent / PatchSync Integration | 🟡 | 1+/6 | Daily snapshot → patchsync-status Task dispatch implemented; outcome measurement and richer agent contracts pending |
 | M16 Admin Dashboard | ⬜ | 5 | Deferred |
 | M17 Authentication / Security | 🟡 | 1 | Bearer boundaries implemented; production secrets/scoping still pending |
 | M18 Observability | 🟡 | 1 | Public health + secure admin diagnostics + structured collection-run logging implemented; full Vitest verification pending |
@@ -57,6 +57,7 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T17 Production secrets/migrations/deploy
 - [ ] P1-T18 Real GSC smoke tests
 - [ ] P1-T19 ChatGPT reporting handoff/security contract
+- [x] P1-T20 Daily Site Insights snapshot → PatchSync Status analysis Task dispatch (always once per Project/day; source_ref reconciliation)
 
 ### Phase 1 top-level TODO
 
