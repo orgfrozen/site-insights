@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { CreateProjectInput } from "../src/domain/types";
 import type { SiteInsightsEnv } from "../src/env";
@@ -140,5 +140,42 @@ describe("GSC project orchestration", () => {
     expect(runs.results.every((run) => run.trigger_type === "cron")).toBe(true);
     expect(runs.results.every((run) => run.error_code === "google_oauth_failed")).toBe(true);
     expect(JSON.stringify(runs.results)).not.toContain("refresh-token-value");
+  });
+
+  it("logs only safe stage diagnostics for unexpected Search Analytics failures", async () => {
+    const project = await seedProject();
+    const secret = "refresh-token-must-not-leak";
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const fetcher: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url === "https://oauth2.googleapis.com/token") {
+        return Response.json({ access_token: "access-token-value", expires_in: 3600 });
+      }
+      if (url.includes("/searchAnalytics/query")) throw new TypeError(secret);
+      if (url.includes("/sitemaps")) {
+        return Response.json({ sitemap: [{ path: "https://zeroparse.com/sitemap.xml" }] });
+      }
+      if (url.includes("urlInspection/index:inspect")) {
+        return Response.json({ inspectionResult: { indexStatusResult: { verdict: "PASS" } } });
+      }
+      throw new Error(`unexpected_fetch:${url}`);
+    };
+
+    try {
+      const summary = await collectProjectGsc(project, testEnv(), { triggerType: "manual", fetcher });
+      expect(summary.sources.gsc_search_analytics.errorCode).toBe(
+        "gsc_search_analytics_latest_final_date_failed",
+      );
+
+      const logged = logSpy.mock.calls
+        .map(([line]) => String(line))
+        .find((line) => line.includes('"source":"gsc_search_analytics"'));
+      expect(logged).toBeDefined();
+      expect(logged).toContain('"errorStage":"latest_final_date"');
+      expect(logged).toContain('"errorType":"TypeError"');
+      expect(logged).not.toContain(secret);
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });

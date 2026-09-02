@@ -1,6 +1,7 @@
 import type { Project } from "../domain/types";
 import type { SiteInsightsEnv } from "../env";
 import { formatSearchConsoleDate, subtractDays } from "./dates";
+import { withSearchAnalyticsStage } from "./search-analytics-stage-error";
 import {
   SearchAnalyticsClient,
   type SearchAnalyticsRow,
@@ -127,38 +128,45 @@ export async function collectSearchAnalytics(
 
   const client = new SearchAnalyticsClient(options.accessToken, options.fetcher ?? fetch);
   const repository = new SearchAnalyticsRepository(options.env.DB);
-  const latestFinalDate = await client.findLatestFinalDate(
-    options.project.gscProperty,
-    latestLookbackStart,
-    todayPacific,
+  const latestFinalDate = await withSearchAnalyticsStage("latest_final_date", () =>
+    client.findLatestFinalDate(
+      options.project.gscProperty,
+      latestLookbackStart,
+      todayPacific,
+    ),
   );
   if (!latestFinalDate) return { latestFinalDate: null, recordsWritten: 0 };
 
-  const storedLatestDate = await repository.getLatestDate(options.project.id);
+  const storedLatestDate = await withSearchAnalyticsStage("stored_latest_date", () =>
+    repository.getLatestDate(options.project.id),
+  );
   const daysToCollect = storedLatestDate ? refreshDays : initialBackfillDays;
   const startDate = subtractDays(latestFinalDate, daysToCollect - 1);
 
-  const [dailyRows, queryRows, pageRows, queryPageRows, countryRows, deviceRows] = await Promise.all([
-    queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date"]),
-    queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date", "query"]),
-    queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date", "page"]),
-    queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date", "query", "page"]),
-    queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date", "country"]),
-    queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date", "device"]),
-  ]);
+  const [dailyRows, queryRows, pageRows, queryPageRows, countryRows, deviceRows] =
+    await withSearchAnalyticsStage("fetch_datasets", () => Promise.all([
+      queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date"]),
+      queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date", "query"]),
+      queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date", "page"]),
+      queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date", "query", "page"]),
+      queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date", "country"]),
+      queryDataset(client, options.project.gscProperty, startDate, latestFinalDate, ["date", "device"]),
+    ]));
 
-  const snapshots: SearchAnalyticsSnapshots = {
+  const snapshots = await withSearchAnalyticsStage("normalize", () => ({
     daily: normalizeDaily(dailyRows),
     queries: normalizeQueries(queryRows),
     pages: normalizePages(pageRows),
     queryPages: normalizeQueryPages(queryPageRows),
     countries: normalizeCountries(countryRows),
     devices: normalizeDevices(deviceRows),
-  };
-  const recordsWritten = await repository.upsertSnapshots(
-    options.project.id,
-    snapshots,
-    now.toISOString(),
+  } satisfies SearchAnalyticsSnapshots));
+  const recordsWritten = await withSearchAnalyticsStage("write_snapshots", () =>
+    repository.upsertSnapshots(
+      options.project.id,
+      snapshots,
+      now.toISOString(),
+    ),
   );
 
   return { latestFinalDate, recordsWritten };

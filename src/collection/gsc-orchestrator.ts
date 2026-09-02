@@ -3,6 +3,7 @@ import type { SiteInsightsEnv } from "../env";
 import { getGoogleConnection } from "../google/google-connection";
 import { GoogleOAuthError, refreshGoogleAccessToken } from "../google/oauth";
 import { collectSearchAnalytics } from "../gsc/search-analytics-collector";
+import { searchAnalyticsDiagnosticFields } from "../gsc/search-analytics-stage-error";
 import { collectSitemaps } from "../gsc/sitemap-collector";
 import { collectUrlInspections } from "../gsc/url-inspection-collector";
 import { logEvent } from "../observability/logger";
@@ -160,6 +161,9 @@ export async function collectProjectGsc(
       });
     } catch (error) {
       const failure = stableError(source, error);
+      const diagnosticFields = source === "gsc_search_analytics"
+        ? searchAnalyticsDiagnosticFields(error)
+        : null;
       await runRepository.finish(runId, {
         status: "failed",
         recordsWritten: 0,
@@ -178,6 +182,7 @@ export async function collectProjectGsc(
         status: "failed",
         recordsWritten: 0,
         errorCode: failure.code,
+        ...(diagnosticFields ?? {}),
       });
     }
   };

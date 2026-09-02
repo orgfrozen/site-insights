@@ -174,4 +174,72 @@ describe("collectSearchAnalytics", () => {
 
     expect(result).toEqual({ latestFinalDate: null, recordsWritten: 0 });
   });
+
+  it("classifies unexpected latest-final-date failures by stage without exposing the cause message", async () => {
+    const secret = "access-token-must-not-leak";
+    const fetcher: typeof fetch = async () => {
+      throw new TypeError(secret);
+    };
+
+    let caught: unknown;
+    try {
+      await collectSearchAnalytics({
+        project,
+        accessToken: "access-token",
+        env: env as typeof env,
+        fetcher,
+        now: new Date("2026-08-17T12:00:00.000Z"),
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({
+      code: "gsc_search_analytics_latest_final_date_failed",
+      stage: "latest_final_date",
+      causeType: "TypeError",
+      message: "gsc_search_analytics_latest_final_date_failed",
+    });
+    expect(String(caught)).not.toContain(secret);
+  });
+
+  it("classifies unexpected dataset fetch failures after the latest final date is known", async () => {
+    let calls = 0;
+    const fetcher: typeof fetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return Response.json({
+          rows: [{ keys: ["2026-08-15"], clicks: 1, impressions: 10, ctr: 0.1, position: 7 }],
+        });
+      }
+      throw new TypeError("dataset fetch failed");
+    };
+
+    await expect(collectSearchAnalytics({
+      project,
+      accessToken: "access-token",
+      env: env as typeof env,
+      fetcher,
+      now: new Date("2026-08-17T12:00:00.000Z"),
+    })).rejects.toMatchObject({
+      code: "gsc_search_analytics_fetch_datasets_failed",
+      stage: "fetch_datasets",
+      causeType: "TypeError",
+    });
+  });
+
+  it("preserves explicit Search Analytics client errors instead of replacing them with a stage code", async () => {
+    const fetcher: typeof fetch = async () => Response.json(
+      { error: { status: "RESOURCE_EXHAUSTED" } },
+      { status: 429 },
+    );
+
+    await expect(collectSearchAnalytics({
+      project,
+      accessToken: "access-token",
+      env: env as typeof env,
+      fetcher,
+      now: new Date("2026-08-17T12:00:00.000Z"),
+    })).rejects.toThrow("gsc_search_analytics_http_error:429:RESOURCE_EXHAUSTED");
+  });
 });
