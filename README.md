@@ -12,14 +12,15 @@ This repository is the initialized Phase 1 foundation. It currently includes:
 - Phase 1 architecture, implementation plan, and Master Map
 - Daily Site Insights snapshot generation and PatchSync Status Task dispatch after each scheduled Project collection
 
-Google OAuth, Search Console collection, scheduler orchestration, reporting aggregation, and daily PatchSync Task dispatch are implemented in source. Production deployment, real GSC smoke tests, and production PatchSync credentials/configuration remain environment tasks.
+Google OAuth, Search Console collection, scheduler orchestration, reporting aggregation, daily PatchSync Task dispatch, and GitHub → Cloudflare deployment automation are implemented in source. The first production GitHub run, real GSC smoke tests, and production runtime credentials/configuration remain environment tasks.
 
 ## Requirements
 
 - Node.js 22+
 - npm
 - Cloudflare account
-- Wrangler login for remote D1 creation/deployment
+- GitHub repository with Actions enabled
+- Cloudflare API token with Workers Scripts Edit and D1 Edit permissions
 
 ## Install
 
@@ -40,28 +41,60 @@ The original bootstrap used `@cloudflare/vitest-pool-workers ^0.9.0`. Because th
 
 The first install also creates `package-lock.json`. The generated source package may not include it if dependencies could not be downloaded in the build environment.
 
-## Create the D1 database
+## Deploy to Cloudflare from GitHub
 
-`wrangler.jsonc` intentionally contains this bootstrap placeholder:
+Production deploys are automated by `.github/workflows/deploy-cloudflare.yml`. Pushes to `main` and manual `workflow_dispatch` runs execute this order:
+
+```text
+npm ci
+npm test
+ensure/reuse D1 database
+apply remote D1 migrations
+deploy Worker
+```
+
+Configure these GitHub Actions repository secrets before the first run:
+
+```text
+CLOUDFLARE_ACCOUNT_ID
+CLOUDFLARE_API_TOKEN
+```
+
+The Cloudflare API token needs account-scoped **Workers Scripts Edit** and **D1 Edit** permissions. Keep the token in GitHub Secrets; never commit it.
+
+### Automatic D1 bootstrap
+
+`wrangler.jsonc` intentionally keeps the bootstrap placeholder:
 
 ```json
 "database_id": "00000000-0000-0000-0000-000000000000"
 ```
 
-Create the real database:
+Do **not** replace that UUID in Git. During each deploy, `scripts/ensure-cloudflare-d1.mjs` calls the Cloudflare D1 API using the GitHub secrets above:
+
+1. Query the account for a database named `site-insights`.
+2. Reuse it when exactly one matching database exists.
+3. Create `site-insights` only when no match exists.
+4. Render `wrangler.deploy.jsonc` in the repository root with the real UUID. The generated file is gitignored and exists only for that deployment.
+5. Run remote migrations with the generated config.
+6. Deploy the Worker with the same generated config.
+
+This keeps D1 creation idempotent and avoids maintaining a production UUID in source control. A concurrent first-deploy create race is reconciled by re-querying the named database before failing.
+
+For a local CI-style bootstrap, use Cloudflare API credentials in the environment:
 
 ```bash
-npx wrangler login
-npx wrangler d1 create site-insights
+export CLOUDFLARE_ACCOUNT_ID='...'
+export CLOUDFLARE_API_TOKEN='...'
+node scripts/ensure-cloudflare-d1.mjs
+npx wrangler d1 migrations apply site-insights --remote --config wrangler.deploy.jsonc
+npx wrangler deploy --config wrangler.deploy.jsonc
 ```
 
-Copy the returned UUID into `wrangler.jsonc`, replacing the all-zero placeholder.
-
-Then apply migrations:
+For local-only D1 development, Wrangler still supports the local database without a production UUID:
 
 ```bash
 npx wrangler d1 migrations apply site-insights --local
-npx wrangler d1 migrations apply site-insights --remote
 ```
 
 ## Configure API tokens
@@ -77,6 +110,8 @@ npx wrangler secret put READ_API_TOKEN
 ```
 
 Do not commit real token values.
+
+These are Cloudflare Worker runtime secrets, separate from the two GitHub deployment secrets. `wrangler deploy` preserves existing Worker secrets; configure them once with Wrangler or the Cloudflare dashboard.
 
 ## Configure PatchSync Status daily analysis dispatch
 
@@ -137,6 +172,7 @@ Once npm dependencies are installed:
 ```bash
 npm run types
 npm run typecheck
+npm run test:deploy-bootstrap
 npm test
 ```
 

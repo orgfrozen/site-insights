@@ -14,7 +14,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Done · ⛔ Blocked
 | M05 PageSpeed / CWV | ⬜ | 2 | Deferred |
 | M06 Keyword / Ranking Tracking | ⬜ | 4 | Provider abstraction required |
 | M07 Promotion / Backlinks | ⬜ | 3 | Promotion records first |
-| M08 Data Pipeline / Scheduler | 🟡 | 1 | Source-isolated GSC orchestration + collection-run logging + Cron/manual trigger implemented; full Vitest/local Cron verification pending |
+| M08 Data Pipeline / Scheduler | 🟡 | 1 | Source-isolated GSC orchestration + collection-run logging + Cron/manual trigger implemented; GitHub production deploy now ensures D1 + migrations before Worker deploy |
 | M09 Historical Data Warehouse | 🟡 | 1 | Phase 1 schema and Search Analytics historical upserts implemented; remaining collectors pending |
 | M10 Insight Engine | ⬜ | 2/4 | Basic then advanced |
 | M11 Alerts | ⬜ | 2 | Deferred |
@@ -54,10 +54,11 @@ Plan status: ✅ Detailed, self-reviewed, and ready for execution.
 - [ ] P1-T14 Read-only status aggregation API — source/tests implemented; real SQLite aggregation smoke verified; full Vitest verification pending PatchSync/local npm install
 - [ ] P1-T15 Health + secure diagnostics — source/tests implemented; runtime success/failure/no-secret-leak smoke verified; full Vitest verification pending PatchSync/local npm install
 - [x] P1-T16 Configure ZeroParse + VetaTool — local Project Registry API + fresh D1 migrations verified; production records are configured in P1-T17
-- [ ] P1-T17 Production secrets/migrations/deploy
+- [ ] P1-T17 Production secrets/migrations/deploy — GitHub deployment automation + idempotent D1 ensure/migrations implemented; first production run and runtime secret provisioning pending
 - [ ] P1-T18 Real GSC smoke tests
 - [ ] P1-T19 ChatGPT reporting handoff/security contract
 - [x] P1-T20 Daily Site Insights snapshot → PatchSync Status analysis Task dispatch (always once per Project/day; source_ref reconciliation)
+- [x] P1-T21 GitHub → Cloudflare deployment automation (D1 lookup/create, ephemeral deploy config, remote migrations, Worker deploy)
 
 ### Phase 1 top-level TODO
 

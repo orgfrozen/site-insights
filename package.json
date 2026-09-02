@@ -6,10 +6,11 @@
   "scripts": {
     "types": "wrangler types",
     "typecheck": "npm run types && tsc --noEmit",
-    "test": "vitest run",
+    "test": "npm run test:deploy-bootstrap && vitest run",
     "test:watch": "vitest",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test:deploy-bootstrap": "node --test scripts/ensure-cloudflare-d1.node-test.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.20.1",
