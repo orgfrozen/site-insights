@@ -92,7 +92,8 @@ export class SearchAnalyticsClient {
 
   async query(siteUrl: string, request: SearchAnalyticsRequest): Promise<SearchAnalyticsResponse> {
     const endpoint = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`;
-    const response = await this.fetcher(endpoint, {
+    const fetcher = this.fetcher;
+    const response = await fetcher(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.accessToken}`,

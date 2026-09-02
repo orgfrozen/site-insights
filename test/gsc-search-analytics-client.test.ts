@@ -80,6 +80,23 @@ describe("SearchAnalyticsClient", () => {
     await expect(client.findLatestFinalDate("sc-domain:zeroparse.com", "2026-08-01", "2026-08-15")).resolves.toBe("2026-08-15");
   });
 
+  it("invokes the fetcher as a plain function without binding the client as this", async () => {
+    let receiver: unknown = Symbol("not-called");
+    const fetcher = function (this: unknown) {
+      receiver = this;
+      return Promise.resolve(Response.json({ rows: [] }));
+    } as typeof fetch;
+    const client = new SearchAnalyticsClient("access-token", fetcher);
+
+    await client.query("sc-domain:zeroparse.com", {
+      startDate: "2026-08-01",
+      endDate: "2026-08-15",
+      dimensions: ["date"],
+    });
+
+    expect(receiver).toBeUndefined();
+  });
+
   it("throws stable sanitized errors for Google HTTP failures and malformed responses", async () => {
     const { fetcher } = fakeFetchSequence([
       new Response(JSON.stringify({ error: { message: "quota exceeded", status: "RESOURCE_EXHAUSTED" } }), {
