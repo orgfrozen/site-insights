@@ -497,4 +497,91 @@ describe("daily analysis dispatch", () => {
     expect(stored?.taskRefreshPending).toBe(false);
   });
 
+  it("creates one follow-up analysis when a succeeded upgrade arrives after the original task completed", async () => {
+    const projectId = "vetatool-completed-refresh";
+    await new ProjectRepository(env.DB).createProject(projectInput(projectId));
+    const repository = new DailyAnalysisRepository(env.DB);
+    await repository.getOrCreate({
+      projectId,
+      analysisDate: "2026-09-01",
+      dataThrough: null,
+      collectionStatus: "partial",
+      snapshotMarkdown: "partial snapshot",
+      snapshotJson: { version: 1, state: "partial" },
+      generatedAt: "2026-09-01T01:00:00.000Z",
+    });
+    await repository.markDispatchSucceeded(
+      projectId,
+      "2026-09-01",
+      "task_completed",
+      new Date("2026-09-01T01:05:00.000Z"),
+    );
+
+    const succeededReport = report();
+    succeededReport.project.id = projectId;
+    succeededReport.project.name = projectId;
+    succeededReport.project.domain = `${projectId}.com`;
+    succeededReport.project.baseUrl = `https://${projectId}.com`;
+
+    const calls: Array<{ method: string; url: string; body?: Record<string, unknown> }> = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined;
+      calls.push({ method, url, body });
+
+      if (method === "GET" && url.endsWith("/v1/tasks/task_completed/evidence")) {
+        return Response.json({ evidence: [] });
+      }
+      if (method === "POST" && url.endsWith("/v1/tasks/task_completed/evidence")) {
+        return Response.json({ evidence: { evidence_id: "evidence_upgrade" } }, { status: 201 });
+      }
+      if (method === "GET" && url.includes("source_ref=site-insights%3Avetatool-completed-refresh%3Adaily%3A2026-09-01%3Asucceeded-refresh")) {
+        return Response.json({ tasks: [], next_before: null });
+      }
+      if (method === "GET" && url.includes("source_ref=site-insights%3Avetatool-completed-refresh%3Adaily%3A2026-09-01")) {
+        return Response.json({ tasks: [{ task_id: "task_completed", status: "completed" }], next_before: null });
+      }
+      if (method === "POST" && url.endsWith("/v1/tasks")) {
+        return Response.json({ task: { task_id: "task_refresh" }, assignment: { assignment_id: "assignment_refresh" } }, { status: 201 });
+      }
+      throw new Error(`unexpected request ${method} ${url}`);
+    };
+
+    const commonInput = {
+      collectionStatus: "succeeded" as const,
+      fetcher,
+      statusReport: succeededReport,
+      configuration: {
+        baseUrl: "https://patchsync-status.test",
+        token: "test-token",
+        agentId: "ewan-macbook",
+      },
+    };
+    const first = await dispatchDailyAnalysis(
+      projectInput(projectId) as never,
+      env as SiteInsightsEnv & Record<string, string>,
+      { ...commonInput, now: new Date("2026-09-01T02:00:00Z") },
+    );
+
+    expect(first).toMatchObject({ status: "succeeded", taskId: "task_refresh", created: true });
+    const taskPost = calls.find((call) => call.method === "POST" && call.url.endsWith("/v1/tasks"));
+    expect(taskPost?.body).toMatchObject({
+      parent_task_id: "task_completed",
+      source_type: "api",
+      source_ref: "site-insights:vetatool-completed-refresh:daily:2026-09-01:succeeded-refresh",
+      acceptance: { require_analysis: true },
+    });
+    expect(String(taskPost?.body?.goal)).toContain("Collection result: succeeded");
+
+    const callCountAfterFirst = calls.length;
+    const repeated = await dispatchDailyAnalysis(
+      projectInput(projectId) as never,
+      env as SiteInsightsEnv & Record<string, string>,
+      { ...commonInput, now: new Date("2026-09-01T03:00:00Z") },
+    );
+    expect(repeated).toMatchObject({ status: "succeeded", taskId: "task_refresh", created: false });
+    expect(calls).toHaveLength(callCountAfterFirst);
+  });
+
 });
