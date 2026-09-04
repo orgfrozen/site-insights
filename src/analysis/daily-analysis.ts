@@ -26,7 +26,9 @@ export interface DailyAnalysisDispatchInput {
 
 export interface DailyAnalysisDispatchResult {
   status: "succeeded" | "failed";
+  dispatchStatus: "succeeded" | "failed";
   taskId?: string;
+  taskStatus: string | null;
   created?: boolean;
   errorCode?: string;
   analysisDate: string;
@@ -364,11 +366,26 @@ async function attachSnapshotUpgradeEvidence(
   return true;
 }
 
+async function getTaskStatus(
+  configuration: PatchSyncStatusConfiguration,
+  taskId: string,
+  fetcher: Fetcher,
+): Promise<string | null> {
+  const response = await fetcher(
+    `${withoutTrailingSlash(configuration.baseUrl)}/v1/tasks/${encodeURIComponent(taskId)}`,
+    { headers: { authorization: `Bearer ${configuration.token}` } },
+  );
+  if (!response.ok) throw new Error(stableHttpError(response));
+  const body = await response.json() as { task?: { task_id?: unknown; status?: unknown } };
+  if (body.task?.task_id !== taskId) throw new Error("patchsync_invalid_task_response");
+  return typeof body.task.status === "string" ? body.task.status : null;
+}
+
 async function createTask(
   configuration: PatchSyncStatusConfiguration,
   task: DailyAnalysisTaskInput,
   fetcher: Fetcher,
-): Promise<{ taskId: string; created: boolean }> {
+): Promise<{ taskId: string; created: boolean; taskStatus: string | null }> {
   const response = await fetcher(`${withoutTrailingSlash(configuration.baseUrl)}/v1/tasks`, {
     method: "POST",
     headers: {
@@ -378,12 +395,16 @@ async function createTask(
     body: JSON.stringify(task),
   });
   if (!response.ok) throw new Error(stableHttpError(response));
-  const body = await response.json() as { created?: unknown; task?: { task_id?: unknown } };
+  const body = await response.json() as {
+    created?: unknown;
+    task?: { task_id?: unknown; status?: unknown };
+  };
   const taskId = body.task?.task_id;
   if (typeof taskId !== "string" || taskId.length === 0) throw new Error("patchsync_invalid_task_response");
   return {
     taskId,
     created: typeof body.created === "boolean" ? body.created : response.status === 201,
+    taskStatus: typeof body.task?.status === "string" ? body.task.status : null,
   };
 }
 
@@ -402,7 +423,13 @@ export async function dispatchDailyAnalysis(
   const repository = new DailyAnalysisRepository(env.DB);
   const statusReport = input.statusReport ?? await new StatusRepository(env.DB).getProjectStatus(project.id, now);
   if (!statusReport) {
-    return { status: "failed", errorCode: "daily_analysis_project_not_found", analysisDate };
+    return {
+      status: "failed",
+      dispatchStatus: "failed",
+      taskStatus: null,
+      errorCode: "daily_analysis_project_not_found",
+      analysisDate,
+    };
   }
 
   const markdown = buildDailyAnalysisMarkdown(statusReport, {
@@ -426,11 +453,29 @@ export async function dispatchDailyAnalysis(
     },
   });
 
+  const configuration = input.configuration ?? envConfiguration(env);
+  const fetcher = input.fetcher ?? fetch;
+
   if (snapshot.dispatchStatus === "succeeded" && snapshot.patchsyncTaskId) {
-    return { status: "succeeded", taskId: snapshot.patchsyncTaskId, created: false, analysisDate };
+    let taskStatus: string | null = null;
+    if (configuration) {
+      try {
+        taskStatus = await getTaskStatus(configuration, snapshot.patchsyncTaskId, fetcher);
+      } catch {
+        // Dispatch already succeeded; a best-effort lifecycle lookup must not
+        // turn a previously successful dispatch into a collection failure.
+      }
+    }
+    return {
+      status: "succeeded",
+      dispatchStatus: "succeeded",
+      taskId: snapshot.patchsyncTaskId,
+      taskStatus,
+      created: false,
+      analysisDate,
+    };
   }
 
-  const configuration = input.configuration ?? envConfiguration(env);
   if (!configuration) {
     await repository.markDispatchFailed(project.id, analysisDate, "patchsync_configuration_missing", now);
     logEvent("daily_analysis_dispatch_failed", {
@@ -438,10 +483,15 @@ export async function dispatchDailyAnalysis(
       analysisDate,
       errorCode: "patchsync_configuration_missing",
     });
-    return { status: "failed", errorCode: "patchsync_configuration_missing", analysisDate };
+    return {
+      status: "failed",
+      dispatchStatus: "failed",
+      taskStatus: null,
+      errorCode: "patchsync_configuration_missing",
+      analysisDate,
+    };
   }
 
-  const fetcher = input.fetcher ?? fetch;
   const sourceRef = dailyAnalysisSourceRef(project.id, analysisDate);
   try {
     const existingTask = await findExistingTask(configuration, project.id, sourceRef, fetcher);
@@ -462,7 +512,7 @@ export async function dispatchDailyAnalysis(
           snapshotMarkdown: snapshot.snapshotMarkdown,
           parentTaskId: existingTask.taskId,
         });
-        let refreshResult: { taskId: string; created: boolean };
+        let refreshResult: { taskId: string; created: boolean; taskStatus: string | null };
         const existingRefreshTask = await findExistingTask(
           configuration,
           project.id,
@@ -470,7 +520,11 @@ export async function dispatchDailyAnalysis(
           fetcher,
         );
         if (existingRefreshTask) {
-          refreshResult = { taskId: existingRefreshTask.taskId, created: false };
+          refreshResult = {
+            taskId: existingRefreshTask.taskId,
+            created: false,
+            taskStatus: existingRefreshTask.status,
+          };
         } else {
           try {
             refreshResult = await createTask(configuration, refreshTask, fetcher);
@@ -483,7 +537,11 @@ export async function dispatchDailyAnalysis(
                 fetcher,
               );
               if (!reconciledRefreshTask) throw createError;
-              refreshResult = { taskId: reconciledRefreshTask.taskId, created: false };
+              refreshResult = {
+                taskId: reconciledRefreshTask.taskId,
+                created: false,
+                taskStatus: reconciledRefreshTask.status,
+              };
             } catch {
               throw createError;
             }
@@ -500,7 +558,9 @@ export async function dispatchDailyAnalysis(
         });
         return {
           status: "succeeded",
+          dispatchStatus: "succeeded",
           taskId: refreshResult.taskId,
+          taskStatus: refreshResult.taskStatus,
           created: refreshResult.created,
           analysisDate,
         };
@@ -521,7 +581,14 @@ export async function dispatchDailyAnalysis(
           ...(shouldRefreshExistingTask ? { evidenceCreated } : {}),
         },
       );
-      return { status: "succeeded", taskId: existingTask.taskId, created: false, analysisDate };
+      return {
+        status: "succeeded",
+        dispatchStatus: "succeeded",
+        taskId: existingTask.taskId,
+        taskStatus: existingTask.status,
+        created: false,
+        analysisDate,
+      };
     }
 
     const task = buildDailyAnalysisTask({
@@ -531,7 +598,7 @@ export async function dispatchDailyAnalysis(
       agentId: configuration.agentId,
       snapshotMarkdown: snapshot.snapshotMarkdown,
     });
-    let taskResult: { taskId: string; created: boolean };
+    let taskResult: { taskId: string; created: boolean; taskStatus: string | null };
     try {
       taskResult = await createTask(configuration, task, fetcher);
     } catch (createError) {
@@ -558,7 +625,14 @@ export async function dispatchDailyAnalysis(
               ...(shouldRefreshExistingTask ? { evidenceCreated } : {}),
             },
           );
-          return { status: "succeeded", taskId: reconciledTask.taskId, created: false, analysisDate };
+          return {
+            status: "succeeded",
+            dispatchStatus: "succeeded",
+            taskId: reconciledTask.taskId,
+            taskStatus: reconciledTask.status,
+            created: false,
+            analysisDate,
+          };
         }
       } catch {
         // Preserve the original create error; reconciliation is best-effort.
@@ -575,7 +649,9 @@ export async function dispatchDailyAnalysis(
     });
     return {
       status: "succeeded",
+      dispatchStatus: "succeeded",
       taskId: taskResult.taskId,
+      taskStatus: taskResult.taskStatus,
       created: taskResult.created,
       analysisDate,
     };
@@ -587,6 +663,12 @@ export async function dispatchDailyAnalysis(
       analysisDate,
       errorCode,
     });
-    return { status: "failed", errorCode, analysisDate };
+    return {
+      status: "failed",
+      dispatchStatus: "failed",
+      taskStatus: null,
+      errorCode,
+      analysisDate,
+    };
   }
 }

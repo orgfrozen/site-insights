@@ -117,6 +117,8 @@ These are Cloudflare Worker runtime secrets, separate from the two GitHub deploy
 
 After each scheduled collection finishes for an enabled Project—and after an authenticated manual GSC collection finishes—site-insights always freezes one Daily Analysis Snapshot for that Project's local calendar date and dispatches one source-aware Task to patchsync-status. There is no "is this worth analyzing?" gate. The deterministic `source_ref` is `site-insights:<project_id>:daily:<YYYY-MM-DD>`, so repeated Cron runs reconcile the same Task instead of creating duplicates. Collection failures/partial runs still produce a Task so the code agent can analyze stale/missing data and source health explicitly. If that same-day snapshot later upgrades to `succeeded` while the original Task is still open, site-insights attaches upgrade Evidence to that Task. If the original Task already completed, site-insights keeps the Evidence on the completed Task and creates one deterministic `:succeeded-refresh` child Task so the final facts are actually re-analyzed without reopening terminal history.
 
+Manual collection responses expose Daily Analysis dispatch and lifecycle state separately. `analysisTask.status` remains a backward-compatible alias for dispatch success/failure; prefer `analysisTask.dispatchStatus` for that meaning. `analysisTask.taskStatus` is the current PatchSync Task lifecycle status when it can be observed (`ready`, `claimed`, `completed`, etc.), or `null` when lifecycle lookup is unavailable. `created` only reports whether this dispatch created a new Task rather than reconciling an existing one.
+
 Configure the control-plane endpoint, its bearer token, and the Agent that should receive the ready Task:
 
 ```bash

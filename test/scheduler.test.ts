@@ -48,7 +48,14 @@ describe("scheduled GSC collection", () => {
       },
       dispatchAnalysis: async (project, _env, input) => {
         dispatched.push([project.id, input.collectionStatus]);
-        return { status: "succeeded", taskId: `task_${project.id}`, created: true, analysisDate: "2026-09-01" };
+        return {
+          status: "succeeded",
+          dispatchStatus: "succeeded",
+          taskId: `task_${project.id}`,
+          taskStatus: "ready",
+          created: true,
+          analysisDate: "2026-09-01",
+        };
       },
     });
 
@@ -112,6 +119,8 @@ describe("manual GSC collection route", () => {
       status: "failed",
       analysisTask: {
         status: "failed",
+        dispatchStatus: "failed",
+        taskStatus: null,
         errorCode: "patchsync_configuration_missing",
       },
     });

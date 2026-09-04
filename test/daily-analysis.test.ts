@@ -229,6 +229,108 @@ describe("daily analysis snapshot", () => {
 });
 
 describe("daily analysis dispatch", () => {
+  it("reports dispatch status separately from the current PatchSync task lifecycle status", async () => {
+    await new ProjectRepository(env.DB).createProject(projectInput("vetatool-status-semantics"));
+    const statusReport = report();
+    statusReport.project.id = "vetatool-status-semantics";
+    statusReport.project.name = "vetatool-status-semantics";
+    statusReport.project.domain = "vetatool-status-semantics.com";
+    statusReport.project.baseUrl = "https://vetatool-status-semantics.com";
+
+    const fetcher: typeof fetch = async (_input, init) => {
+      const method = init?.method ?? "GET";
+      if (method !== "GET") throw new Error("unexpected_post");
+      return Response.json({
+        tasks: [{ task_id: "task_existing_status", status: "claimed" }],
+        next_before: null,
+      });
+    };
+
+    const result = await dispatchDailyAnalysis(
+      projectInput("vetatool-status-semantics") as never,
+      env as SiteInsightsEnv & Record<string, string>,
+      {
+        collectionStatus: "succeeded",
+        now: new Date("2026-09-01T03:00:00Z"),
+        fetcher,
+        statusReport,
+        configuration: {
+          baseUrl: "https://patchsync-status.test",
+          token: "test-token",
+          agentId: "ewan-macbook",
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "succeeded",
+      dispatchStatus: "succeeded",
+      taskId: "task_existing_status",
+      taskStatus: "claimed",
+      created: false,
+    });
+  });
+
+  it("refreshes taskStatus for an already-dispatched daily snapshot without changing dispatch success", async () => {
+    const projectId = "vetatool-cached-status";
+    await new ProjectRepository(env.DB).createProject(projectInput(projectId));
+    const repository = new DailyAnalysisRepository(env.DB);
+    await repository.getOrCreate({
+      projectId,
+      analysisDate: "2026-09-01",
+      dataThrough: "2026-08-30",
+      collectionStatus: "succeeded",
+      snapshotMarkdown: "snapshot",
+      snapshotJson: { version: 1 },
+      generatedAt: "2026-09-01T01:00:00.000Z",
+    });
+    await repository.markDispatchSucceeded(
+      projectId,
+      "2026-09-01",
+      "task_cached_status",
+      new Date("2026-09-01T01:05:00.000Z"),
+    );
+
+    const statusReport = report();
+    statusReport.project.id = projectId;
+    statusReport.project.name = projectId;
+    statusReport.project.domain = `${projectId}.com`;
+    statusReport.project.baseUrl = `https://${projectId}.com`;
+    const calls: string[] = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      calls.push(`${init?.method ?? "GET"} ${String(input)}`);
+      return Response.json({
+        task: { task_id: "task_cached_status", status: "completed" },
+        events: [],
+      });
+    };
+
+    const result = await dispatchDailyAnalysis(
+      projectInput(projectId) as never,
+      env as SiteInsightsEnv & Record<string, string>,
+      {
+        collectionStatus: "succeeded",
+        now: new Date("2026-09-01T03:00:00Z"),
+        fetcher,
+        statusReport,
+        configuration: {
+          baseUrl: "https://patchsync-status.test",
+          token: "test-token",
+          agentId: "ewan-macbook",
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "succeeded",
+      dispatchStatus: "succeeded",
+      taskId: "task_cached_status",
+      taskStatus: "completed",
+      created: false,
+    });
+    expect(calls).toEqual(["GET https://patchsync-status.test/v1/tasks/task_cached_status"]);
+  });
+
   it("recovers an already-created PatchSync task by source_ref without posting a duplicate", async () => {
     await new ProjectRepository(env.DB).createProject(projectInput());
     const calls: Array<{ method: string; url: string }> = [];
@@ -349,6 +451,9 @@ describe("daily analysis dispatch", () => {
       if (method === "GET" && url.endsWith("/v1/tasks/task_existing/evidence")) {
         return Response.json({ evidence: [] });
       }
+      if (method === "GET" && url.endsWith("/v1/tasks/task_existing")) {
+        return Response.json({ task: { task_id: "task_existing", status: "claimed" }, events: [] });
+      }
       if (method === "GET") {
         return Response.json({ tasks: [{ task_id: "task_existing" }], next_before: null });
       }
@@ -411,8 +516,15 @@ describe("daily analysis dispatch", () => {
         },
       },
     );
-    expect(repeated).toMatchObject({ status: "succeeded", taskId: "task_existing", created: false });
-    expect(calls).toHaveLength(callsAfterUpgrade);
+    expect(repeated).toMatchObject({
+      status: "succeeded",
+      dispatchStatus: "succeeded",
+      taskId: "task_existing",
+      taskStatus: "claimed",
+      created: false,
+    });
+    expect(calls).toHaveLength(callsAfterUpgrade + 1);
+    expect(calls.at(-1)?.url).toBe("https://patchsync-status.test/v1/tasks/task_existing");
   });
 
   it("reconciles same-day upgrade evidence after a lost evidence response", async () => {
@@ -536,6 +648,9 @@ describe("daily analysis dispatch", () => {
       if (method === "POST" && url.endsWith("/v1/tasks/task_completed/evidence")) {
         return Response.json({ evidence: { evidence_id: "evidence_upgrade" } }, { status: 201 });
       }
+      if (method === "GET" && url.endsWith("/v1/tasks/task_refresh")) {
+        return Response.json({ task: { task_id: "task_refresh", status: "ready" }, events: [] });
+      }
       if (method === "GET" && url.includes("source_ref=site-insights%3Avetatool-completed-refresh%3Adaily%3A2026-09-01%3Asucceeded-refresh")) {
         return Response.json({ tasks: [], next_before: null });
       }
@@ -580,8 +695,15 @@ describe("daily analysis dispatch", () => {
       env as SiteInsightsEnv & Record<string, string>,
       { ...commonInput, now: new Date("2026-09-01T03:00:00Z") },
     );
-    expect(repeated).toMatchObject({ status: "succeeded", taskId: "task_refresh", created: false });
-    expect(calls).toHaveLength(callCountAfterFirst);
+    expect(repeated).toMatchObject({
+      status: "succeeded",
+      dispatchStatus: "succeeded",
+      taskId: "task_refresh",
+      taskStatus: "ready",
+      created: false,
+    });
+    expect(calls).toHaveLength(callCountAfterFirst + 1);
+    expect(calls.at(-1)?.url).toBe("https://patchsync-status.test/v1/tasks/task_refresh");
   });
 
 });
