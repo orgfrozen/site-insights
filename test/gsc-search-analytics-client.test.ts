@@ -99,8 +99,8 @@ describe("SearchAnalyticsClient", () => {
 
   it("throws stable sanitized errors for Google HTTP failures and malformed responses", async () => {
     const { fetcher } = fakeFetchSequence([
-      new Response(JSON.stringify({ error: { message: "quota exceeded", status: "RESOURCE_EXHAUSTED" } }), {
-        status: 429,
+      new Response(JSON.stringify({ error: { message: "permission denied", status: "PERMISSION_DENIED" } }), {
+        status: 403,
         headers: { "content-type": "application/json" },
       }),
       new Response("not json", { status: 200, headers: { "content-type": "application/json" } }),
@@ -109,10 +109,97 @@ describe("SearchAnalyticsClient", () => {
 
     await expect(
       client.query("sc-domain:zeroparse.com", { startDate: "2026-08-01", endDate: "2026-08-15" }),
-    ).rejects.toThrow("gsc_search_analytics_http_error:429:RESOURCE_EXHAUSTED");
+    ).rejects.toThrow("gsc_search_analytics_http_error:403:PERMISSION_DENIED");
 
     await expect(
       client.query("sc-domain:zeroparse.com", { startDate: "2026-08-01", endDate: "2026-08-15" }),
     ).rejects.toThrow("gsc_search_analytics_invalid_response");
+  });
+
+  it.each([429, 500, 502, 503, 504])("retries transient HTTP %s responses before succeeding", async (status) => {
+    const { fetcher, calls } = fakeFetchSequence([
+      new Response(JSON.stringify({ error: { status: "TRANSIENT" } }), {
+        status,
+        headers: { "content-type": "application/json" },
+      }),
+      Response.json({ rows: [] }),
+    ]);
+    const delays: number[] = [];
+    const client = new SearchAnalyticsClient("access-token", fetcher, {
+      sleep: async (delayMs) => { delays.push(delayMs); },
+      random: () => 0,
+    });
+
+    await expect(
+      client.query("sc-domain:zeroparse.com", { startDate: "2026-08-01", endDate: "2026-08-15" }),
+    ).resolves.toEqual({ rows: [], responseAggregationType: undefined, metadata: undefined });
+
+    expect(calls).toHaveLength(2);
+    expect(delays).toEqual([250]);
+  });
+
+  it("retries transient network failures with exponential backoff and jitter", async () => {
+    const calls: string[] = [];
+    let attempt = 0;
+    const fetcher = (async () => {
+      attempt += 1;
+      calls.push(`attempt-${attempt}`);
+      if (attempt < 3) throw new TypeError("network unavailable");
+      return Response.json({ rows: [] });
+    }) as typeof fetch;
+    const delays: number[] = [];
+    const client = new SearchAnalyticsClient("access-token", fetcher, {
+      sleep: async (delayMs) => { delays.push(delayMs); },
+      random: () => 0.5,
+    });
+
+    await expect(
+      client.query("sc-domain:zeroparse.com", { startDate: "2026-08-01", endDate: "2026-08-15" }),
+    ).resolves.toEqual({ rows: [], responseAggregationType: undefined, metadata: undefined });
+
+    expect(calls).toEqual(["attempt-1", "attempt-2", "attempt-3"]);
+    expect(delays).toEqual([375, 750]);
+  });
+
+  it.each([400, 401, 403, 404])("does not retry non-transient HTTP %s responses", async (status) => {
+    const { fetcher, calls } = fakeFetchSequence([
+      new Response(JSON.stringify({ error: { status: "PERMANENT" } }), {
+        status,
+        headers: { "content-type": "application/json" },
+      }),
+      Response.json({ rows: [] }),
+    ]);
+    const delays: number[] = [];
+    const client = new SearchAnalyticsClient("access-token", fetcher, {
+      sleep: async (delayMs) => { delays.push(delayMs); },
+      random: () => 0,
+    });
+
+    await expect(
+      client.query("sc-domain:zeroparse.com", { startDate: "2026-08-01", endDate: "2026-08-15" }),
+    ).rejects.toThrow(`gsc_search_analytics_http_error:${status}:PERMANENT`);
+
+    expect(calls).toHaveLength(1);
+    expect(delays).toEqual([]);
+  });
+
+  it("stops after two retries and preserves the final Google error", async () => {
+    const { fetcher, calls } = fakeFetchSequence([
+      new Response(JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED" } }), { status: 429 }),
+      new Response(JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED" } }), { status: 429 }),
+      new Response(JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED" } }), { status: 429 }),
+    ]);
+    const delays: number[] = [];
+    const client = new SearchAnalyticsClient("access-token", fetcher, {
+      sleep: async (delayMs) => { delays.push(delayMs); },
+      random: () => 0,
+    });
+
+    await expect(
+      client.query("sc-domain:zeroparse.com", { startDate: "2026-08-01", endDate: "2026-08-15" }),
+    ).rejects.toThrow("gsc_search_analytics_http_error:429:RESOURCE_EXHAUSTED");
+
+    expect(calls).toHaveLength(3);
+    expect(delays).toEqual([250, 500]);
   });
 });

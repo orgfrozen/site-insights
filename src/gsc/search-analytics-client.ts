@@ -24,7 +24,29 @@ export interface SearchAnalyticsRequest {
 }
 
 const SEARCH_ANALYTICS_ROW_LIMIT = 25_000;
+const SEARCH_ANALYTICS_MAX_ATTEMPTS = 3;
+const SEARCH_ANALYTICS_RETRY_BASE_DELAY_MS = 250;
+const TRANSIENT_HTTP_STATUSES = new Set([429, 500, 502, 503, 504]);
 type Fetcher = typeof fetch;
+type RetrySleeper = (delayMs: number) => Promise<void>;
+
+interface SearchAnalyticsRetryOptions {
+  sleep?: RetrySleeper;
+  random?: () => number;
+}
+
+function defaultSleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function isTransientNetworkError(error: unknown): boolean {
+  return error instanceof TypeError || (error instanceof DOMException && error.name === "AbortError");
+}
+
+function retryDelayMs(retryNumber: number, random: () => number): number {
+  const exponentialDelay = SEARCH_ANALYTICS_RETRY_BASE_DELAY_MS * (2 ** retryNumber);
+  return exponentialDelay + Math.floor(random() * exponentialDelay);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -84,16 +106,24 @@ function safeGoogleReason(value: unknown): string | null {
 export class SearchAnalyticsClient {
   private readonly accessToken: string;
   private readonly fetcher: Fetcher;
+  private readonly sleep: RetrySleeper;
+  private readonly random: () => number;
 
-  constructor(accessToken: string, fetcher: Fetcher = fetch) {
+  constructor(
+    accessToken: string,
+    fetcher: Fetcher = fetch,
+    retryOptions: SearchAnalyticsRetryOptions = {},
+  ) {
     this.accessToken = accessToken;
     this.fetcher = fetcher;
+    this.sleep = retryOptions.sleep ?? defaultSleep;
+    this.random = retryOptions.random ?? Math.random;
   }
 
   async query(siteUrl: string, request: SearchAnalyticsRequest): Promise<SearchAnalyticsResponse> {
     const endpoint = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`;
     const fetcher = this.fetcher;
-    const response = await fetcher(endpoint, {
+    const requestInit: RequestInit = {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
@@ -108,21 +138,41 @@ export class SearchAnalyticsClient {
         rowLimit: request.rowLimit ?? SEARCH_ANALYTICS_ROW_LIMIT,
         startRow: request.startRow ?? 0,
       }),
-    });
+    };
 
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new Error(response.ok ? "gsc_search_analytics_invalid_response" : `gsc_search_analytics_http_error:${response.status}`);
+    for (let attempt = 0; attempt < SEARCH_ANALYTICS_MAX_ATTEMPTS; attempt += 1) {
+      let response: Response;
+      try {
+        response = await fetcher(endpoint, requestInit);
+      } catch (error) {
+        const hasRetry = attempt + 1 < SEARCH_ANALYTICS_MAX_ATTEMPTS;
+        if (!hasRetry || !isTransientNetworkError(error)) throw error;
+        await this.sleep(retryDelayMs(attempt, this.random));
+        continue;
+      }
+
+      const hasRetry = attempt + 1 < SEARCH_ANALYTICS_MAX_ATTEMPTS;
+      if (hasRetry && TRANSIENT_HTTP_STATUSES.has(response.status)) {
+        await this.sleep(retryDelayMs(attempt, this.random));
+        continue;
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new Error(response.ok ? "gsc_search_analytics_invalid_response" : `gsc_search_analytics_http_error:${response.status}`);
+      }
+
+      if (!response.ok) {
+        const reason = safeGoogleReason(payload);
+        throw new Error(`gsc_search_analytics_http_error:${response.status}${reason ? `:${reason}` : ""}`);
+      }
+
+      return normalizeResponse(payload);
     }
 
-    if (!response.ok) {
-      const reason = safeGoogleReason(payload);
-      throw new Error(`gsc_search_analytics_http_error:${response.status}${reason ? `:${reason}` : ""}`);
-    }
-
-    return normalizeResponse(payload);
+    throw new Error("gsc_search_analytics_retry_exhausted");
   }
 
   async queryAll(siteUrl: string, request: SearchAnalyticsRequest): Promise<SearchAnalyticsRow[]> {
