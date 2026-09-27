@@ -72,6 +72,12 @@ function report(): ProjectStatusReport {
     sitemaps: [
       { path: "https://vetatool.com/sitemap.xml", errors: 0, warnings: 0, isPending: false },
     ],
+    collectionHealth: {
+      status: "warning",
+      reason: "collection_degraded",
+      affectedSources: ["gsc_url_inspection"],
+      repeatedFailureSources: [],
+    },
     sources: {
       gsc_search_analytics: {
         status: "succeeded",
@@ -132,6 +138,33 @@ describe("daily analysis snapshot", () => {
     expect(markdown.length).toBeLessThan(6500);
   });
 
+  it("surfaces critical collection health before SEO metrics", () => {
+    const criticalReport = report();
+    criticalReport.collectionHealth = {
+      status: "critical",
+      reason: "google_oauth_invalid_grant",
+      affectedSources: [
+        "gsc_search_analytics",
+        "gsc_sitemaps",
+        "gsc_url_inspection",
+      ],
+      repeatedFailureSources: [
+        "gsc_search_analytics",
+        "gsc_sitemaps",
+        "gsc_url_inspection",
+      ],
+    };
+    const markdown = buildDailyAnalysisMarkdown(criticalReport, {
+      analysisDate: "2026-09-01",
+      collectionStatus: "failed",
+    });
+
+    expect(markdown).toContain("Collection health: critical; reason=google_oauth_invalid_grant");
+    expect(markdown).toContain("## Collection alert");
+    expect(markdown.indexOf("## Collection alert")).toBeLessThan(markdown.indexOf("## Search summary"));
+    expect(markdown).toContain("do not infer a site regression from collector failure alone");
+  });
+
   it("builds one source-aware improvement task that allows a no-code conclusion", () => {
     const task = buildDailyAnalysisTask({
       projectId: "vetatool",
@@ -150,6 +183,9 @@ describe("daily analysis snapshot", () => {
     });
     expect(task.goal).toContain("结合本次 VetaTool 最新源码");
     expect(task.goal).toContain("不要为了产生 Patch 强行修改");
+    expect(task.instructions).toContain(
+      "If the snapshot reports warning/critical collection health, treat SEO/search metrics as potentially stale and do not propose target-site code changes solely to compensate for a collector/OAuth failure.",
+    );
   });
 
   it("persists only the first snapshot for one project/day", async () => {

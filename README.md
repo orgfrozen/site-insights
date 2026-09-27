@@ -218,7 +218,13 @@ POST  /v1/admin/projects/:id/enable
 POST  /v1/admin/projects/:id/disable
 ```
 
-Read-only `/v1/*` routing is protected now; reporting endpoints are added later in Phase 1.
+Read-only `/v1/*` routing is protected with `Authorization: Bearer <READ_API_TOKEN>`. Project status includes machine-readable collection health so operators and Daily Analysis can distinguish stale-data risk from a real site regression:
+
+```text
+GET /v1/projects/:id/status
+```
+
+`collectionHealth.status` is `healthy`, `warning`, `critical`, or `unknown`. Shared Google OAuth failures and all-source failures are critical immediately; a source whose two latest runs both failed is also critical until a successful run clears the repeated-failure condition. Daily Snapshots surface non-healthy collection state before SEO metrics.
 
 ## Example: create ZeroParse
 

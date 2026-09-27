@@ -301,6 +301,12 @@ describe("read-only project status API", () => {
         warnings: 0,
       }),
     ]);
+    expect(body.collectionHealth).toEqual({
+      status: "warning",
+      reason: "collection_degraded",
+      affectedSources: ["gsc_sitemaps", "gsc_url_inspection"],
+      repeatedFailureSources: [],
+    });
     expect(body.sources).toEqual({
       gsc_search_analytics: {
         status: "succeeded",
@@ -340,7 +346,120 @@ describe("read-only project status API", () => {
       position: null,
     });
     expect(body.topQueries).toEqual([]);
+    expect(body.collectionHealth).toEqual({
+      status: "unknown",
+      reason: "never_collected",
+      affectedSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
+      repeatedFailureSources: [],
+    });
     expect(body.sources.gsc_search_analytics).toEqual({ status: "never_collected" });
+  });
+
+  it("marks shared OAuth failures critical and identifies repeated failed sources", async () => {
+    const projectId = "oauth-health";
+    await new ProjectRepository(env.DB).createProject(projectInput(projectId));
+    const statements: D1PreparedStatement[] = [];
+    for (const [attempt, startedAt] of [["old", "2026-09-26T00:00:00.000Z"], ["new", "2026-09-27T00:00:00.000Z"]] as const) {
+      for (const source of ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"] as const) {
+        statements.push(env.DB.prepare(`
+          INSERT INTO collection_runs
+            (id, project_id, source, trigger_type, status, started_at, completed_at, records_written, error_code)
+          VALUES (?, ?, ?, 'cron', 'failed', ?, ?, 0, 'google_oauth_invalid_grant')
+        `).bind(
+          `${source}-${attempt}`,
+          projectId,
+          source,
+          startedAt,
+          startedAt,
+        ));
+      }
+    }
+    await env.DB.batch(statements);
+
+    const response = await exports.default.fetch(
+      `https://site-insights.test/v1/projects/${projectId}/status`,
+      { headers: { authorization: "Bearer test-read-token" } },
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, any>;
+    expect(body.collectionHealth).toEqual({
+      status: "critical",
+      reason: "google_oauth_invalid_grant",
+      affectedSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
+      repeatedFailureSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
+    });
+  });
+
+  it("marks a source critical after two consecutive failed runs", async () => {
+    const projectId = "repeated-health";
+    await new ProjectRepository(env.DB).createProject(projectInput(projectId));
+    await env.DB.batch([
+      env.DB.prepare(`
+        INSERT INTO collection_runs
+          (id, project_id, source, trigger_type, status, started_at, completed_at, records_written)
+        VALUES ('search-ok', ?, 'gsc_search_analytics', 'cron', 'succeeded', '2026-09-27T00:00:00.000Z', '2026-09-27T00:01:00.000Z', 10)
+      `).bind(projectId),
+      env.DB.prepare(`
+        INSERT INTO collection_runs
+          (id, project_id, source, trigger_type, status, started_at, completed_at, records_written)
+        VALUES ('inspection-ok', ?, 'gsc_url_inspection', 'cron', 'succeeded', '2026-09-27T00:00:00.000Z', '2026-09-27T00:01:00.000Z', 1)
+      `).bind(projectId),
+      env.DB.prepare(`
+        INSERT INTO collection_runs
+          (id, project_id, source, trigger_type, status, started_at, completed_at, records_written, error_code)
+        VALUES ('sitemap-failed-old', ?, 'gsc_sitemaps', 'cron', 'failed', '2026-09-26T00:00:00.000Z', '2026-09-26T00:01:00.000Z', 0, 'gsc_sitemaps_http_error')
+      `).bind(projectId),
+      env.DB.prepare(`
+        INSERT INTO collection_runs
+          (id, project_id, source, trigger_type, status, started_at, completed_at, records_written, error_code)
+        VALUES ('sitemap-failed-new', ?, 'gsc_sitemaps', 'cron', 'failed', '2026-09-27T00:00:00.000Z', '2026-09-27T00:01:00.000Z', 0, 'gsc_sitemaps_http_error')
+      `).bind(projectId),
+    ]);
+
+    const response = await exports.default.fetch(
+      `https://site-insights.test/v1/projects/${projectId}/status`,
+      { headers: { authorization: "Bearer test-read-token" } },
+    );
+    const body = await response.json() as Record<string, any>;
+    expect(body.collectionHealth).toEqual({
+      status: "critical",
+      reason: "repeated_collection_failures",
+      affectedSources: ["gsc_sitemaps"],
+      repeatedFailureSources: ["gsc_sitemaps"],
+    });
+  });
+
+  it("returns healthy after each source recovers from an older failure", async () => {
+    const projectId = "recovered-health";
+    await new ProjectRepository(env.DB).createProject(projectInput(projectId));
+    const statements: D1PreparedStatement[] = [];
+    for (const source of ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"] as const) {
+      statements.push(
+        env.DB.prepare(`
+          INSERT INTO collection_runs
+            (id, project_id, source, trigger_type, status, started_at, completed_at, records_written, error_code)
+          VALUES (?, ?, ?, 'cron', 'failed', '2026-09-26T00:00:00.000Z', '2026-09-26T00:01:00.000Z', 0, 'google_oauth_invalid_grant')
+        `).bind(`${source}-failed`, projectId, source),
+        env.DB.prepare(`
+          INSERT INTO collection_runs
+            (id, project_id, source, trigger_type, status, started_at, completed_at, records_written)
+          VALUES (?, ?, ?, 'manual', 'succeeded', '2026-09-27T00:00:00.000Z', '2026-09-27T00:01:00.000Z', 1)
+        `).bind(`${source}-succeeded`, projectId, source),
+      );
+    }
+    await env.DB.batch(statements);
+
+    const response = await exports.default.fetch(
+      `https://site-insights.test/v1/projects/${projectId}/status`,
+      { headers: { authorization: "Bearer test-read-token" } },
+    );
+    const body = await response.json() as Record<string, any>;
+    expect(body.collectionHealth).toEqual({
+      status: "healthy",
+      reason: "all_sources_succeeded",
+      affectedSources: [],
+      repeatedFailureSources: [],
+    });
   });
 
   it("returns 404 for an unknown project and still requires read auth", async () => {

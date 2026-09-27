@@ -38,6 +38,81 @@ export interface SourceRunStatus {
 
 export type SourceStatus = SourceNeverCollected | SourceRunStatus;
 
+export type CollectionHealthStatus = "healthy" | "warning" | "critical" | "unknown";
+
+export interface CollectionHealth {
+  status: CollectionHealthStatus;
+  reason: string;
+  affectedSources: CollectionSource[];
+  repeatedFailureSources: CollectionSource[];
+}
+
+export function deriveCollectionHealth(
+  sources: Record<CollectionSource, SourceStatus>,
+  repeatedFailureSources: CollectionSource[],
+): CollectionHealth {
+  const affectedSources = COLLECTION_SOURCES.filter((source) => sources[source].status !== "succeeded");
+  const observedSources = COLLECTION_SOURCES.filter((source) => sources[source].status !== "never_collected");
+  const failedSources = COLLECTION_SOURCES.filter((source) => sources[source].status === "failed");
+  const latestErrorCodes = failedSources.map((source) => {
+    const state = sources[source];
+    return state.status === "failed" ? state.errorCode : null;
+  });
+  const commonErrorCode = latestErrorCodes.length === COLLECTION_SOURCES.length &&
+    latestErrorCodes.every((code) => code !== null && code === latestErrorCodes[0])
+    ? latestErrorCodes[0]
+    : null;
+  const systemicGoogleFailure = commonErrorCode !== null &&
+    (commonErrorCode === "google_connection_not_configured" || commonErrorCode.startsWith("google_oauth_"));
+
+  if (observedSources.length === 0) {
+    return {
+      status: "unknown",
+      reason: "never_collected",
+      affectedSources: [...COLLECTION_SOURCES],
+      repeatedFailureSources,
+    };
+  }
+  if (affectedSources.length === 0) {
+    return {
+      status: "healthy",
+      reason: "all_sources_succeeded",
+      affectedSources: [],
+      repeatedFailureSources: [],
+    };
+  }
+  if (systemicGoogleFailure) {
+    return {
+      status: "critical",
+      reason: commonErrorCode,
+      affectedSources,
+      repeatedFailureSources,
+    };
+  }
+  if (failedSources.length === COLLECTION_SOURCES.length) {
+    return {
+      status: "critical",
+      reason: "all_collection_sources_failed",
+      affectedSources,
+      repeatedFailureSources,
+    };
+  }
+  if (repeatedFailureSources.length > 0) {
+    return {
+      status: "critical",
+      reason: "repeated_collection_failures",
+      affectedSources,
+      repeatedFailureSources,
+    };
+  }
+  return {
+    status: "warning",
+    reason: "collection_degraded",
+    affectedSources,
+    repeatedFailureSources,
+  };
+}
+
 export interface ProjectStatusReport {
   project: {
     id: string;
@@ -67,6 +142,7 @@ export interface ProjectStatusReport {
   coreUrls: Array<Record<string, unknown>>;
   sitemaps: Array<Record<string, unknown>>;
   sources: Record<CollectionSource, SourceStatus>;
+  collectionHealth: CollectionHealth;
 }
 
 interface DataThroughRow {
@@ -331,17 +407,23 @@ export class StatusRepository {
     }));
   }
 
-  private async latestSources(projectId: string): Promise<Record<CollectionSource, SourceStatus>> {
+  private async sourceState(projectId: string): Promise<{
+    sources: Record<CollectionSource, SourceStatus>;
+    collectionHealth: CollectionHealth;
+  }> {
     const rows = await this.db.prepare(`
       SELECT source, status, started_at, completed_at, records_written, error_code
       FROM collection_runs
       WHERE project_id = ?
       ORDER BY started_at DESC, id DESC
+      LIMIT 30
     `).bind(projectId).all<CollectionRunRow>();
 
     const sources = {} as Record<CollectionSource, SourceStatus>;
+    const repeatedFailureSources: CollectionSource[] = [];
     for (const source of COLLECTION_SOURCES) {
-      const row = rows.results.find((candidate) => candidate.source === source);
+      const sourceRows = rows.results.filter((candidate) => candidate.source === source);
+      const row = sourceRows[0];
       sources[source] = row
         ? {
             status: row.status,
@@ -351,8 +433,15 @@ export class StatusRepository {
             errorCode: row.error_code,
           }
         : { status: "never_collected" };
+      if (sourceRows.length >= 2 && sourceRows[0].status === "failed" && sourceRows[1].status === "failed") {
+        repeatedFailureSources.push(source);
+      }
     }
-    return sources;
+
+    return {
+      sources,
+      collectionHealth: deriveCollectionHealth(sources, repeatedFailureSources),
+    };
   }
 
   async getProjectStatus(projectId: string, now = new Date()): Promise<ProjectStatusReport | null> {
@@ -412,10 +501,10 @@ export class StatusRepository {
       ]);
     }
 
-    const [coreUrls, sitemaps, sources] = await Promise.all([
+    const [coreUrls, sitemaps, sourceState] = await Promise.all([
       this.latestInspections(projectId),
       this.latestSitemaps(projectId),
-      this.latestSources(projectId),
+      this.sourceState(projectId),
     ]);
 
     return {
@@ -446,7 +535,8 @@ export class StatusRepository {
       devices,
       coreUrls,
       sitemaps,
-      sources,
+      sources: sourceState.sources,
+      collectionHealth: sourceState.collectionHealth,
     };
   }
 }

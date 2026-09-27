@@ -139,6 +139,17 @@ export function buildDailyAnalysisMarkdown(
   report: ProjectStatusReport,
   options: BuildSnapshotOptions,
 ): string {
+  const health = report.collectionHealth;
+  const alertLines = health.status === "healthy"
+    ? []
+    : [
+        "",
+        "## Collection alert",
+        `- severity: ${health.status}; reason=${health.reason}`,
+        `- affected sources: ${health.affectedSources.join(", ") || "none"}`,
+        `- repeated failures: ${health.repeatedFailureSources.join(", ") || "none"}`,
+        "- Treat search/indexing metrics as potentially stale until collection health recovers; do not infer a site regression from collector failure alone.",
+      ];
   const lines: string[] = [
     `# Site Insights Daily Snapshot — ${report.project.name}`,
     "",
@@ -146,6 +157,8 @@ export function buildDailyAnalysisMarkdown(
     `Generated at: ${report.generatedAt}`,
     `Data through: ${report.dataThrough ?? "no final GSC data"}`,
     `Collection result: ${options.collectionStatus}`,
+    `Collection health: ${health.status}; reason=${health.reason}`,
+    ...alertLines,
     "",
     "## Search summary",
     metricLine("Latest final day", report.search.latestDay),
@@ -184,6 +197,7 @@ export function buildDailyAnalysisMarkdown(
     ...report.sitemaps.slice(0, 10).map((row) => `- ${tableCell(row.path)}: errors=${tableCell(row.errors)}; warnings=${tableCell(row.warnings)}; pending=${tableCell(row.isPending)}; lastDownloaded=${tableCell(row.lastDownloaded) || "unknown"}`),
     "",
     "## Collection health",
+    `- overall: ${health.status}; reason=${health.reason}; affected=${health.affectedSources.join(",") || "none"}; repeatedFailures=${health.repeatedFailureSources.join(",") || "none"}`,
     ...Object.entries(report.sources).map(([source, state]) => state.status === "never_collected"
       ? `- ${source}: never_collected`
       : `- ${source}: ${state.status}; records=${state.recordsWritten}; error=${state.errorCode ?? "none"}`),
@@ -226,6 +240,7 @@ export function buildDailyAnalysisTask(input: {
       "Before acting, inspect current Task Context/Evidence. If site_insights.daily_snapshot_upgrade evidence exists, its snapshot_markdown supersedes the embedded snapshot below.",
       "Read the exported latest project source before selecting an implementation action.",
       "Choose at most one highest-value action for this Task.",
+      "If the snapshot reports warning/critical collection health, treat SEO/search metrics as potentially stale and do not propose target-site code changes solely to compensate for a collector/OAuth failure.",
     ],
     acceptance: { require_analysis: true },
   };
