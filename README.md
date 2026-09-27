@@ -205,6 +205,8 @@ GET /health
 
 Admin, using `Authorization: Bearer <ADMIN_API_TOKEN>`:
 
+`GET /v1/admin/diagnostics` actively probes both D1 and the Google OAuth refresh flow. The response only exposes sanitized health state/error codes and configuration-presence booleans; it never returns credentials or access tokens.
+
 ```text
 GET   /v1/admin/diagnostics
 POST  /v1/admin/projects

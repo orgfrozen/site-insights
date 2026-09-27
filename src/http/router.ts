@@ -6,6 +6,8 @@ import { handleProjectStatusRoute } from "../reporting/status-routes";
 import { handleProjectAdminRoute } from "../projects/project-routes";
 import { requireAdminAuth, requireReadAuth } from "./auth";
 import { configurationPresence, logEvent } from "../observability/logger";
+import { getGoogleConnectionFromEnv } from "../google/google-connection";
+import { GoogleOAuthError, refreshGoogleAccessToken } from "../google/oauth";
 import { jsonResponse } from "./response";
 
 function healthResponse(): Response {
@@ -16,30 +18,72 @@ function healthResponse(): Response {
   });
 }
 
-async function diagnosticsResponse(env: SiteInsightsEnv): Promise<Response> {
-  const configuration = configurationPresence(env);
+type GoogleOAuthDiagnostic =
+  | { status: "ok" }
+  | { status: "failed"; errorCode: string; httpStatus?: number };
 
+async function databaseDiagnostic(env: SiteInsightsEnv): Promise<"ok" | "error"> {
   try {
     await env.DB.prepare("SELECT 1 AS ok").first();
-    return jsonResponse({
-      ok: true,
-      database: "ok",
-      configuration,
-    });
+    return "ok";
   } catch {
     logEvent("diagnostics.database_probe_failed", { database: "error" });
-    return jsonResponse({
-      ok: false,
-      database: "error",
-      configuration,
-    }, 503);
+    return "error";
   }
+}
+
+async function googleOAuthDiagnostic(
+  env: SiteInsightsEnv,
+  fetcher: typeof fetch,
+): Promise<GoogleOAuthDiagnostic> {
+  try {
+    const connection = getGoogleConnectionFromEnv(env);
+    await refreshGoogleAccessToken(connection, fetcher);
+    return { status: "ok" };
+  } catch (error) {
+    if (error instanceof GoogleOAuthError) {
+      const diagnostic: GoogleOAuthDiagnostic = {
+        status: "failed",
+        errorCode: error.code,
+        ...(error.status > 0 ? { httpStatus: error.status } : {}),
+      };
+      logEvent("diagnostics.google_oauth_probe_failed", diagnostic);
+      return diagnostic;
+    }
+
+    const errorCode = error instanceof Error && error.message === "google_connection_not_configured"
+      ? "google_connection_not_configured"
+      : "google_oauth_failed";
+    const diagnostic: GoogleOAuthDiagnostic = { status: "failed", errorCode };
+    logEvent("diagnostics.google_oauth_probe_failed", diagnostic);
+    return diagnostic;
+  }
+}
+
+async function diagnosticsResponse(
+  env: SiteInsightsEnv,
+  fetcher: typeof fetch,
+): Promise<Response> {
+  const configuration = configurationPresence(env);
+  const [database, googleOAuth] = await Promise.all([
+    databaseDiagnostic(env),
+    googleOAuthDiagnostic(env, fetcher),
+  ]);
+  const ok = database === "ok" && googleOAuth.status === "ok";
+
+  return jsonResponse({
+    ok,
+    database,
+    googleOAuth,
+    configuration,
+  }, ok ? 200 : 503);
 }
 
 export async function routeRequest(
   request: Request,
   env: SiteInsightsEnv,
   _ctx: ExecutionContext,
+  fetcher: typeof fetch = fetch,
 ): Promise<Response> {
   const { pathname } = new URL(request.url);
 
@@ -53,7 +97,7 @@ export async function routeRequest(
 
     if (pathname === "/v1/admin/diagnostics") {
       if (request.method !== "GET") return jsonResponse({ error: "method_not_allowed" }, 405);
-      return diagnosticsResponse(env);
+      return diagnosticsResponse(env, fetcher);
     }
 
     if (pathname === "/v1/admin/projects") {

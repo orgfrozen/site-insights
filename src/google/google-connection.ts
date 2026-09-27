@@ -7,7 +7,7 @@ export interface GoogleConnection {
   refreshToken: string;
 }
 
-export function getGoogleConnection(_project: Project, env: SiteInsightsEnv): GoogleConnection {
+export function getGoogleConnectionFromEnv(env: SiteInsightsEnv): GoogleConnection {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REFRESH_TOKEN) {
     throw new Error("google_connection_not_configured");
   }
@@ -17,4 +17,8 @@ export function getGoogleConnection(_project: Project, env: SiteInsightsEnv): Go
     clientSecret: env.GOOGLE_CLIENT_SECRET,
     refreshToken: env.GOOGLE_REFRESH_TOKEN,
   };
+}
+
+export function getGoogleConnection(_project: Project, env: SiteInsightsEnv): GoogleConnection {
+  return getGoogleConnectionFromEnv(env);
 }

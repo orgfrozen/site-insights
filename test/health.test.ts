@@ -49,6 +49,13 @@ function executionContext(): ExecutionContext {
   return {} as ExecutionContext;
 }
 
+function successfulOAuthFetch(): typeof fetch {
+  return async (input) => {
+    expect(String(input)).toBe("https://oauth2.googleapis.com/token");
+    return Response.json({ access_token: "diagnostic-access-token-value", expires_in: 3600 });
+  };
+}
+
 describe("GET /health", () => {
   it("returns a minimal public health response", async () => {
     const response = await exports.default.fetch("https://site-insights.test/health");
@@ -63,17 +70,18 @@ describe("GET /health", () => {
 });
 
 describe("GET /v1/admin/diagnostics", () => {
-  it("reports D1 health and secret presence as booleans without exposing values", async () => {
+  it("actively verifies D1 and Google OAuth without exposing credentials or access tokens", async () => {
     const env = diagnosticEnv();
     const response = await routeRequest(new Request("https://site-insights.test/v1/admin/diagnostics", {
       headers: { authorization: "Bearer admin-token-value" },
-    }), env, executionContext());
+    }), env, executionContext(), successfulOAuthFetch());
 
     expect(response.status).toBe(200);
     const serialized = await response.clone().text();
     expect(await response.json()).toEqual({
       ok: true,
       database: "ok",
+      googleOAuth: { status: "ok" },
       configuration: {
         googleClientId: true,
         googleClientSecret: true,
@@ -90,6 +98,7 @@ describe("GET /v1/admin/diagnostics", () => {
       "google-client-id-value",
       "google-client-secret-value",
       "google-refresh-token-value",
+      "diagnostic-access-token-value",
       "admin-token-value",
       "read-token-value",
       "patchsync-token-value",
@@ -98,17 +107,18 @@ describe("GET /v1/admin/diagnostics", () => {
     }
   });
 
-  it("returns 503 for a failed D1 probe without exposing database errors or secret values", async () => {
+  it("returns 503 for a failed D1 probe while still reporting a successful OAuth probe", async () => {
     const env = diagnosticEnv({ dbError: true });
     const response = await routeRequest(new Request("https://site-insights.test/v1/admin/diagnostics", {
       headers: { authorization: "Bearer admin-token-value" },
-    }), env, executionContext());
+    }), env, executionContext(), successfulOAuthFetch());
 
     expect(response.status).toBe(503);
     const bodyText = await response.text();
     expect(JSON.parse(bodyText)).toEqual({
       ok: false,
       database: "error",
+      googleOAuth: { status: "ok" },
       configuration: {
         googleClientId: true,
         googleClientSecret: true,
@@ -124,7 +134,33 @@ describe("GET /v1/admin/diagnostics", () => {
     expect(bodyText).not.toContain("google-client-secret-value");
   });
 
-  it("reports missing optional configuration as false", async () => {
+  it("returns a sanitized OAuth failure when Google rejects the refresh token", async () => {
+    const env = diagnosticEnv();
+    const fetcher: typeof fetch = async () => Response.json({
+      error: "invalid_grant",
+      error_description: "google-refresh-token-value must never be returned",
+    }, { status: 400 });
+
+    const response = await routeRequest(new Request("https://site-insights.test/v1/admin/diagnostics", {
+      headers: { authorization: "Bearer admin-token-value" },
+    }), env, executionContext(), fetcher);
+
+    expect(response.status).toBe(503);
+    const bodyText = await response.text();
+    expect(JSON.parse(bodyText)).toMatchObject({
+      ok: false,
+      database: "ok",
+      googleOAuth: {
+        status: "failed",
+        errorCode: "google_oauth_invalid_grant",
+        httpStatus: 400,
+      },
+    });
+    expect(bodyText).not.toContain("google-refresh-token-value");
+    expect(bodyText).not.toContain("error_description");
+  });
+
+  it("reports missing Google configuration without attempting the OAuth request", async () => {
     const env = diagnosticEnv({
       googleClientId: "",
       googleClientSecret: "",
@@ -134,12 +170,21 @@ describe("GET /v1/admin/diagnostics", () => {
       patchsyncStatusToken: "",
       patchsyncStatusAgentId: "",
     });
+    const fetcher: typeof fetch = async () => {
+      throw new Error("oauth_fetch_should_not_run");
+    };
     const response = await routeRequest(new Request("https://site-insights.test/v1/admin/diagnostics", {
       headers: { authorization: "Bearer admin-token-value" },
-    }), env, executionContext());
+    }), env, executionContext(), fetcher);
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({
+      ok: false,
+      database: "ok",
+      googleOAuth: {
+        status: "failed",
+        errorCode: "google_connection_not_configured",
+      },
       configuration: {
         googleClientId: false,
         googleClientSecret: false,

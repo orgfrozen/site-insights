@@ -3,6 +3,7 @@ import type { Project } from "../src/domain/types";
 import type { SiteInsightsEnv } from "../src/env";
 import {
   getGoogleConnection,
+  getGoogleConnectionFromEnv,
   type GoogleConnection,
 } from "../src/google/google-connection";
 import {
@@ -26,6 +27,7 @@ describe("getGoogleConnection", () => {
     } as SiteInsightsEnv;
 
     expect(getGoogleConnection({} as Project, env)).toEqual(connection);
+    expect(getGoogleConnectionFromEnv(env)).toEqual(connection);
   });
 
   it("fails with a stable error when any credential is missing", () => {
