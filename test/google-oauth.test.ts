@@ -88,10 +88,48 @@ describe("refreshGoogleAccessToken", () => {
     }
 
     expect(caught).toBeInstanceOf(GoogleOAuthError);
-    expect(caught).toMatchObject({ code: "google_oauth_failed", status: 400 });
-    expect((caught as Error).message).toBe("google_oauth_failed");
+    expect(caught).toMatchObject({ code: "google_oauth_invalid_grant", status: 400 });
+    expect((caught as Error).message).toBe("google_oauth_invalid_grant");
     expect((caught as Error).message).not.toContain(connection.clientSecret);
     expect((caught as Error).message).not.toContain(connection.refreshToken);
+  });
+
+  it("distinguishes invalid client credentials without exposing provider details", async () => {
+    const { fetcher } = fakeFetchSequence([
+      Response.json(
+        { error: "invalid_client", error_description: `secret ${connection.clientSecret} rejected` },
+        { status: 401 },
+      ),
+    ]);
+
+    await expect(refreshGoogleAccessToken(connection, fetcher)).rejects.toMatchObject({
+      code: "google_oauth_invalid_client",
+      status: 401,
+      message: "google_oauth_invalid_client",
+    });
+  });
+
+  it("uses a stable HTTP error for unrecognized provider failures", async () => {
+    const { fetcher } = fakeFetchSequence([
+      Response.json({ error: "temporarily_unavailable" }, { status: 503 }),
+    ]);
+
+    await expect(refreshGoogleAccessToken(connection, fetcher)).rejects.toMatchObject({
+      code: "google_oauth_http_error",
+      status: 503,
+    });
+  });
+
+  it("distinguishes token endpoint network failures", async () => {
+    const fetcher: typeof fetch = async () => {
+      throw new TypeError(`network failed with ${connection.refreshToken}`);
+    };
+
+    await expect(refreshGoogleAccessToken(connection, fetcher)).rejects.toMatchObject({
+      code: "google_oauth_network_error",
+      status: 0,
+      message: "google_oauth_network_error",
+    });
   });
 
   it("rejects malformed successful token responses with the stable error", async () => {
@@ -103,7 +141,7 @@ describe("refreshGoogleAccessToken", () => {
     ]);
 
     await expect(refreshGoogleAccessToken(connection, fetcher)).rejects.toMatchObject({
-      code: "google_oauth_failed",
+      code: "google_oauth_invalid_response",
       status: 502,
     });
   });
@@ -114,7 +152,7 @@ describe("refreshGoogleAccessToken", () => {
     ]);
 
     await expect(refreshGoogleAccessToken(connection, fetcher)).rejects.toMatchObject({
-      code: "google_oauth_failed",
+      code: "google_oauth_invalid_response",
       status: 502,
     });
   });

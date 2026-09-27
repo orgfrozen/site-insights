@@ -157,7 +157,18 @@ export GOOGLE_CLIENT_SECRET='your-google-oauth-client-secret'
 node scripts/google-oauth-local.mjs
 ```
 
-Open the printed Google authorization URL, sign in with the account that owns the required Search Console properties, and complete consent. The helper prints the refresh token once to the local terminal. Store the three Google values as Worker secrets; do not put them in `.dev.vars` on shared machines or commit them:
+Open the printed Google authorization URL, sign in with the account that owns the required Search Console properties, and complete consent. The helper prints the refresh token once to the local terminal.
+
+If the browser can reach Google but the helper reports `google_oauth_network_error`, Node may not be using the machine's HTTP proxy. Configure proxy environment variables for the terminal, keep the loopback callback out of the proxy, and opt Node into environment-proxy handling:
+
+```bash
+export HTTP_PROXY='http://127.0.0.1:<proxy-port>'
+export HTTPS_PROXY='http://127.0.0.1:<proxy-port>'
+export NO_PROXY='127.0.0.1,localhost'
+node --use-env-proxy scripts/google-oauth-local.mjs
+```
+
+Store the three Google values as Worker secrets; do not put them in `.dev.vars` on shared machines or commit them:
 
 ```bash
 npx wrangler secret put GOOGLE_CLIENT_ID

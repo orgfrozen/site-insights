@@ -87,9 +87,21 @@ async function recordAuthenticationFailure(
   triggerType: CollectionTriggerType,
   error: unknown,
 ): Promise<ProjectCollectionSummary> {
-  const failure = error instanceof GoogleOAuthError
-    ? { code: error.code, message: error.message }
-    : { code: "google_oauth_failed", message: "google_oauth_failed" };
+  let failure: { code: string; message: string; httpStatus?: number };
+  if (error instanceof GoogleOAuthError) {
+    failure = {
+      code: error.code,
+      message: error.status > 0 ? `${error.code}:${error.status}` : error.code,
+      ...(error.status > 0 ? { httpStatus: error.status } : {}),
+    };
+  } else if (error instanceof Error && error.message === "google_connection_not_configured") {
+    failure = {
+      code: "google_connection_not_configured",
+      message: "google_connection_not_configured",
+    };
+  } else {
+    failure = { code: "google_oauth_failed", message: "google_oauth_failed" };
+  }
   const sources = {} as Record<CollectionSource, SourceCollectionSummary>;
 
   for (const source of COLLECTION_SOURCES) {
@@ -108,6 +120,7 @@ async function recordAuthenticationFailure(
       status: "failed",
       recordsWritten: 0,
       errorCode: failure.code,
+      ...(failure.httpStatus ? { oauthHttpStatus: failure.httpStatus } : {}),
     });
   }
 

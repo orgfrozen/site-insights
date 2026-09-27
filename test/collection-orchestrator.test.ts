@@ -128,7 +128,7 @@ describe("GSC project orchestration", () => {
       expect(summary.sources[source]).toEqual({
         status: "failed",
         recordsWritten: 0,
-        errorCode: "google_oauth_failed",
+        errorCode: "google_oauth_invalid_grant",
       });
     }
 
@@ -138,8 +138,29 @@ describe("GSC project orchestration", () => {
     expect(runs.results).toHaveLength(3);
     expect(runs.results.every((run) => run.status === "failed")).toBe(true);
     expect(runs.results.every((run) => run.trigger_type === "cron")).toBe(true);
-    expect(runs.results.every((run) => run.error_code === "google_oauth_failed")).toBe(true);
+    expect(runs.results.every((run) => run.error_code === "google_oauth_invalid_grant")).toBe(true);
+    expect(runs.results.every((run) => run.error_message === "google_oauth_invalid_grant:400")).toBe(true);
     expect(JSON.stringify(runs.results)).not.toContain("refresh-token-value");
+  });
+
+  it("records missing Google credentials distinctly from OAuth provider failures", async () => {
+    const project = await seedProject();
+    const envWithoutGoogle = testEnv();
+    delete (envWithoutGoogle as Partial<SiteInsightsEnv>).GOOGLE_REFRESH_TOKEN;
+
+    const summary = await collectProjectGsc(project, envWithoutGoogle, {
+      triggerType: "manual",
+      fetcher: async () => {
+        throw new Error("fetch_should_not_run");
+      },
+    });
+
+    expect(summary.status).toBe("failed");
+    expect(
+      Object.values(summary.sources).every(
+        (source) => source.errorCode === "google_connection_not_configured",
+      ),
+    ).toBe(true);
   });
 
   it("logs only safe stage diagnostics for unexpected Search Analytics failures", async () => {

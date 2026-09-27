@@ -41,14 +41,43 @@ async function exchangeCode(code) {
     grant_type: "authorization_code",
   });
 
-  const response = await fetch(TOKEN_ENDPOINT, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body,
-  });
+  let response;
+  try {
+    response = await fetch(TOKEN_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+    });
+  } catch (error) {
+    const causeCode =
+      error instanceof Error &&
+      error.cause &&
+      typeof error.cause === "object" &&
+      "code" in error.cause &&
+      typeof error.cause.code === "string" &&
+      /^[A-Z0-9_]+$/.test(error.cause.code)
+        ? `:${error.cause.code}`
+        : "";
+    throw new Error(`google_oauth_network_error${causeCode}`);
+  }
 
   if (!response.ok) {
-    throw new Error(`google_oauth_exchange_failed:${response.status}`);
+    let providerCode = "";
+    try {
+      const errorBody = await response.json();
+      if (
+        errorBody &&
+        typeof errorBody === "object" &&
+        "error" in errorBody &&
+        typeof errorBody.error === "string" &&
+        /^[a-z0-9_]+$/.test(errorBody.error)
+      ) {
+        providerCode = `:${errorBody.error}`;
+      }
+    } catch {
+      // Keep the failure sanitized when Google does not return JSON.
+    }
+    throw new Error(`google_oauth_exchange_failed:${response.status}${providerCode}`);
   }
 
   const token = await response.json();
@@ -114,6 +143,11 @@ server = createServer(async (request, response) => {
     response.end("Google OAuth token exchange failed. Return to the terminal.\n");
     const message = error instanceof Error ? error.message : "google_oauth_unknown_error";
     console.error(`Google OAuth failed: ${message}`);
+    if (message.startsWith("google_oauth_network_error")) {
+      console.error(
+        "If Google works in your browser but Node cannot reach it, configure HTTP_PROXY/HTTPS_PROXY, keep NO_PROXY=127.0.0.1,localhost, and rerun this script with `node --use-env-proxy`.",
+      );
+    }
     finish(1);
   }
 });
