@@ -532,6 +532,7 @@ describe("daily analysis dispatch", () => {
         analysis_date: "2026-09-01",
         data_through: "2026-08-30",
         collection_status: "succeeded",
+        collection_health: succeededReport.collectionHealth,
         supersedes_embedded_snapshot: true,
       },
     });

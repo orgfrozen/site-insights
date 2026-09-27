@@ -444,6 +444,10 @@ export class StatusRepository {
     };
   }
 
+  async getCollectionHealth(projectId: string): Promise<CollectionHealth> {
+    return (await this.sourceState(projectId)).collectionHealth;
+  }
+
   async getProjectStatus(projectId: string, now = new Date()): Promise<ProjectStatusReport | null> {
     const project = await new ProjectRepository(this.db).getProject(projectId);
     if (!project) return null;

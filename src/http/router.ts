@@ -3,6 +3,7 @@ import { dispatchDailyAnalysis } from "../analysis/daily-analysis";
 import type { SiteInsightsEnv } from "../env";
 import { ProjectRepository } from "../projects/project-repository";
 import { handleProjectStatusRoute } from "../reporting/status-routes";
+import { StatusRepository } from "../reporting/status-repository";
 import { handleProjectAdminRoute } from "../projects/project-routes";
 import { requireAdminAuth, requireReadAuth } from "./auth";
 import { configurationPresence, logEvent } from "../observability/logger";
@@ -110,10 +111,11 @@ export async function routeRequest(
       const project = await new ProjectRepository(env.DB).getProject(collectMatch[1]);
       if (!project) return jsonResponse({ error: "project_not_found" }, 404);
       const summary = await collectProjectGsc(project, env, { triggerType: "manual" });
+      const collectionHealth = await new StatusRepository(env.DB).getCollectionHealth(project.id);
       const analysisTask = await dispatchDailyAnalysis(project, env, {
         collectionStatus: summary.status,
       });
-      return jsonResponse({ ...summary, analysisTask });
+      return jsonResponse({ ...summary, collectionHealth, analysisTask });
     }
 
     const coreUrlsMatch = pathname.match(/^\/v1\/admin\/projects\/([a-z0-9-]+)\/core-urls$/);

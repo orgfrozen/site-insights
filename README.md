@@ -277,3 +277,7 @@ See:
 - `MASTER_MAP.md`
 - `docs/superpowers/specs/2026-08-17-site-insights-design.md`
 - `docs/superpowers/plans/2026-08-17-phase-1-gsc-foundation.md`
+
+### Structured collection health
+
+Manual GSC collection responses now include the same `collectionHealth` object exposed by the read-only status API. Scheduled collection also records per-project structured health in the `scheduled_collection_project_finished` log event and returns aggregate `healthy` / `warning` / `critical` / `unknown` counts from the scheduler. Daily snapshot JSON and succeeded-snapshot upgrade evidence carry the structured health object as well, so automation does not need to parse the Markdown alert text to distinguish collector failures from target-site changes.

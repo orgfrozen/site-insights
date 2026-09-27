@@ -3,17 +3,26 @@ import { dispatchDailyAnalysis, type DailyAnalysisDispatchInput, type DailyAnaly
 import { logEvent } from "../observability/logger";
 import type { SiteInsightsEnv } from "../env";
 import { ProjectRepository } from "../projects/project-repository";
+import { StatusRepository, type CollectionHealth } from "../reporting/status-repository";
 import {
   collectProjectGsc,
   type CollectProjectGscOptions,
   type ProjectCollectionSummary,
 } from "./gsc-orchestrator";
 
+export interface SchedulerHealthSummary {
+  healthy: number;
+  warning: number;
+  critical: number;
+  unknown: number;
+}
+
 export interface SchedulerSummary {
   total: number;
   succeeded: number;
   partial: number;
   failed: number;
+  health: SchedulerHealthSummary;
 }
 
 type AnalysisDispatcher = (
@@ -28,9 +37,24 @@ type ProjectCollector = (
   options: CollectProjectGscOptions,
 ) => Promise<ProjectCollectionSummary>;
 
+type CollectionHealthReader = (
+  projectId: string,
+  env: SiteInsightsEnv,
+) => Promise<CollectionHealth>;
+
 export interface SchedulerDependencies {
   collectProject?: ProjectCollector;
   dispatchAnalysis?: AnalysisDispatcher;
+  readCollectionHealth?: CollectionHealthReader;
+}
+
+function unknownCollectionHealth(reason: string): CollectionHealth {
+  return {
+    status: "unknown",
+    reason,
+    affectedSources: [],
+    repeatedFailureSources: [],
+  };
 }
 
 export async function runScheduledCollection(
@@ -44,19 +68,38 @@ export async function runScheduledCollection(
     succeeded: 0,
     partial: 0,
     failed: 0,
+    health: { healthy: 0, warning: 0, critical: 0, unknown: 0 },
   };
   const collectProject = dependencies.collectProject ?? collectProjectGsc;
   const dispatchAnalysis = dependencies.dispatchAnalysis ?? dispatchDailyAnalysis;
+  const readCollectionHealth = dependencies.readCollectionHealth
+    ?? ((projectId, runtimeEnv) => new StatusRepository(runtimeEnv.DB).getCollectionHealth(projectId));
 
   for (const project of projects) {
     let collectionStatus: ProjectCollectionSummary["status"] = "failed";
+    let collectionHealth = unknownCollectionHealth("collection_unexpected_error");
     try {
       const result = await collectProject(project, env, { triggerType: "cron" });
       collectionStatus = result.status;
       summary[result.status] += 1;
+      try {
+        collectionHealth = await readCollectionHealth(project.id, env);
+      } catch {
+        collectionHealth = unknownCollectionHealth("collection_health_unavailable");
+      }
     } catch {
       summary.failed += 1;
     }
+
+    summary.health[collectionHealth.status] += 1;
+    logEvent("scheduled_collection_project_finished", {
+      projectId: project.id,
+      collectionStatus,
+      collectionHealthStatus: collectionHealth.status,
+      collectionHealthReason: collectionHealth.reason,
+      affectedSources: collectionHealth.affectedSources,
+      repeatedFailureSources: collectionHealth.repeatedFailureSources,
+    });
 
     try {
       await dispatchAnalysis(project, env, { collectionStatus });
@@ -64,6 +107,8 @@ export async function runScheduledCollection(
       logEvent("daily_analysis_dispatch_unexpected_error", {
         projectId: project.id,
         collectionStatus,
+        collectionHealthStatus: collectionHealth.status,
+        collectionHealthReason: collectionHealth.reason,
       });
     }
   }

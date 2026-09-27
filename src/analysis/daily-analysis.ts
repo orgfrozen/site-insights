@@ -364,6 +364,7 @@ async function attachSnapshotUpgradeEvidence(
           analysis_date: snapshot.analysisDate,
           data_through: snapshot.dataThrough,
           collection_status: snapshot.collectionStatus,
+          collection_health: snapshot.snapshotJson.collectionHealth ?? null,
           generated_at: snapshot.generatedAt,
           supersedes_embedded_snapshot: true,
           instruction: "Use snapshot_markdown as the current Site Insights facts for this Task.",
@@ -464,6 +465,7 @@ export async function dispatchDailyAnalysis(
       analysisDate,
       dataThrough: statusReport.dataThrough,
       collectionStatus: input.collectionStatus,
+      collectionHealth: statusReport.collectionHealth,
       report: statusReport,
     },
   });

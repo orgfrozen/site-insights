@@ -4,7 +4,15 @@ import { describe, expect, it } from "vitest";
 import type { CreateProjectInput } from "../src/domain/types";
 import type { SiteInsightsEnv } from "../src/env";
 import { runScheduledCollection } from "../src/collection/scheduler";
+import type { CollectionHealth } from "../src/reporting/status-repository";
 import { ProjectRepository } from "../src/projects/project-repository";
+
+function collectionHealth(
+  status: CollectionHealth["status"],
+  reason: string,
+): CollectionHealth {
+  return { status, reason, affectedSources: [], repeatedFailureSources: [] };
+}
 
 function projectInput(id: string): CreateProjectInput {
   const domain = `${id}.example`;
@@ -57,11 +65,21 @@ describe("scheduled GSC collection", () => {
           analysisDate: "2026-09-01",
         };
       },
+      readCollectionHealth: async (projectId) => {
+        expect(projectId).toBe("vetatool");
+        return collectionHealth("healthy", "all_sources_succeeded");
+      },
     });
 
     expect(attempted).toEqual(["vetatool", "zeroparse"]);
     expect(dispatched).toEqual([["vetatool", "succeeded"], ["zeroparse", "failed"]]);
-    expect(summary).toEqual({ total: 2, succeeded: 1, partial: 0, failed: 1 });
+    expect(summary).toEqual({
+      total: 2,
+      succeeded: 1,
+      partial: 0,
+      failed: 1,
+      health: { healthy: 1, warning: 0, critical: 0, unknown: 1 },
+    });
   });
 
   it("counts partial project collections separately", async () => {
@@ -74,9 +92,16 @@ describe("scheduled GSC collection", () => {
         status: "partial",
         sources: {} as never,
       }),
+      readCollectionHealth: async () => collectionHealth("warning", "collection_degraded"),
     });
 
-    expect(summary).toEqual({ total: 1, succeeded: 0, partial: 1, failed: 0 });
+    expect(summary).toEqual({
+      total: 1,
+      succeeded: 0,
+      partial: 1,
+      failed: 0,
+      health: { healthy: 0, warning: 1, critical: 0, unknown: 0 },
+    });
   });
 });
 
@@ -114,9 +139,16 @@ describe("manual GSC collection route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    const body = await response.json() as Record<string, any>;
+    expect(body).toMatchObject({
       projectId: "manual-site",
       status: "failed",
+      collectionHealth: {
+        status: "critical",
+        reason: "google_connection_not_configured",
+        affectedSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
+        repeatedFailureSources: [],
+      },
       analysisTask: {
         status: "failed",
         dispatchStatus: "failed",
@@ -126,13 +158,19 @@ describe("manual GSC collection route", () => {
     });
 
     const snapshot = await env.DB.prepare(
-      "SELECT project_id, collection_status, dispatch_status, dispatch_error_code FROM daily_analysis_snapshots WHERE project_id = ?",
+      "SELECT project_id, collection_status, snapshot_json, dispatch_status, dispatch_error_code FROM daily_analysis_snapshots WHERE project_id = ?",
     ).bind("manual-site").first<Record<string, unknown>>();
     expect(snapshot).toMatchObject({
       project_id: "manual-site",
       collection_status: "failed",
       dispatch_status: "failed",
       dispatch_error_code: "patchsync_configuration_missing",
+    });
+    expect(JSON.parse(String(snapshot?.snapshot_json))).toMatchObject({
+      collectionHealth: {
+        status: "critical",
+        reason: "google_connection_not_configured",
+      },
     });
 
     const runs = await env.DB.prepare(
