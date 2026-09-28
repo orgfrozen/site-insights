@@ -1,4 +1,5 @@
 import type { Project } from "../domain/types";
+import type { CollectionRecovery } from "../collection/collection-recovery";
 import type { SiteInsightsEnv } from "../env";
 import { logEvent } from "../observability/logger";
 import { StatusRepository, type ProjectStatusReport, type SearchMetrics } from "../reporting/status-repository";
@@ -22,6 +23,7 @@ export interface DailyAnalysisDispatchInput {
   fetcher?: Fetcher;
   statusReport?: ProjectStatusReport;
   configuration?: PatchSyncStatusConfiguration;
+  collectionRecovery?: CollectionRecovery | null;
 }
 
 export interface DailyAnalysisDispatchResult {
@@ -37,6 +39,7 @@ export interface DailyAnalysisDispatchResult {
 export interface BuildSnapshotOptions {
   analysisDate: string;
   collectionStatus: CollectionStatus;
+  collectionRecovery?: CollectionRecovery | null;
 }
 
 export interface DailyAnalysisTaskInput {
@@ -150,6 +153,16 @@ export function buildDailyAnalysisMarkdown(
         `- repeated failures: ${health.repeatedFailureSources.join(", ") || "none"}`,
         "- Treat search/indexing metrics as potentially stale until collection health recovers; do not infer a site regression from collector failure alone.",
       ];
+  const recovery = options.collectionRecovery;
+  const recoveryLines = recovery
+    ? [
+        "",
+        "## Collection recovery",
+        `- recovered from ${recovery.fromStatus}; reason=${recovery.fromReason}`,
+        `- current health: ${recovery.toStatus}; reason=${recovery.toReason}`,
+        "- Collection is healthy again; historical collector failures should not be treated as current incidents.",
+      ]
+    : [];
   const lines: string[] = [
     `# Site Insights Daily Snapshot — ${report.project.name}`,
     "",
@@ -159,6 +172,7 @@ export function buildDailyAnalysisMarkdown(
     `Collection result: ${options.collectionStatus}`,
     `Collection health: ${health.status}; reason=${health.reason}`,
     ...alertLines,
+    ...recoveryLines,
     "",
     "## Search summary",
     metricLine("Latest final day", report.search.latestDay),
@@ -365,6 +379,7 @@ async function attachSnapshotUpgradeEvidence(
           data_through: snapshot.dataThrough,
           collection_status: snapshot.collectionStatus,
           collection_health: snapshot.snapshotJson.collectionHealth ?? null,
+          collection_recovery: snapshot.snapshotJson.collectionRecovery ?? null,
           generated_at: snapshot.generatedAt,
           supersedes_embedded_snapshot: true,
           instruction: "Use snapshot_markdown as the current Site Insights facts for this Task.",
@@ -451,6 +466,7 @@ export async function dispatchDailyAnalysis(
   const markdown = buildDailyAnalysisMarkdown(statusReport, {
     analysisDate,
     collectionStatus: input.collectionStatus,
+    collectionRecovery: input.collectionRecovery ?? null,
   });
   const snapshot = await repository.getOrCreate({
     projectId: project.id,
@@ -466,6 +482,7 @@ export async function dispatchDailyAnalysis(
       dataThrough: statusReport.dataThrough,
       collectionStatus: input.collectionStatus,
       collectionHealth: statusReport.collectionHealth,
+      collectionRecovery: input.collectionRecovery ?? null,
       report: statusReport,
     },
   });

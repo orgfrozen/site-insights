@@ -1,4 +1,5 @@
 import { collectProjectGsc } from "../collection/gsc-orchestrator";
+import { deriveCollectionRecovery } from "../collection/collection-recovery";
 import { dispatchDailyAnalysis } from "../analysis/daily-analysis";
 import type { SiteInsightsEnv } from "../env";
 import { ProjectRepository } from "../projects/project-repository";
@@ -110,12 +111,16 @@ export async function routeRequest(
     if (request.method === "POST" && collectMatch) {
       const project = await new ProjectRepository(env.DB).getProject(collectMatch[1]);
       if (!project) return jsonResponse({ error: "project_not_found" }, 404);
+      const statusRepository = new StatusRepository(env.DB);
+      const previousCollectionHealth = await statusRepository.getCollectionHealth(project.id);
       const summary = await collectProjectGsc(project, env, { triggerType: "manual" });
-      const collectionHealth = await new StatusRepository(env.DB).getCollectionHealth(project.id);
+      const collectionHealth = await statusRepository.getCollectionHealth(project.id);
+      const collectionRecovery = deriveCollectionRecovery(previousCollectionHealth, collectionHealth);
       const analysisTask = await dispatchDailyAnalysis(project, env, {
         collectionStatus: summary.status,
+        collectionRecovery,
       });
-      return jsonResponse({ ...summary, collectionHealth, analysisTask });
+      return jsonResponse({ ...summary, collectionHealth, collectionRecovery, analysisTask });
     }
 
     const coreUrlsMatch = pathname.match(/^\/v1\/admin\/projects\/([a-z0-9-]+)\/core-urls$/);

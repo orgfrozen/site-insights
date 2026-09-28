@@ -281,3 +281,5 @@ See:
 ### Structured collection health
 
 Manual GSC collection responses now include the same `collectionHealth` object exposed by the read-only status API. Scheduled collection also records per-project structured health in the `scheduled_collection_project_finished` log event and returns aggregate `healthy` / `warning` / `critical` / `unknown` counts from the scheduler. Daily snapshot JSON and succeeded-snapshot upgrade evidence carry the structured health object as well, so automation does not need to parse the Markdown alert text to distinguish collector failures from target-site changes.
+
+Collection recovery is also explicit: a real `warning`/`critical` → `healthy` transition produces a structured `collectionRecovery` object in manual collection responses, scheduler logs/summary, daily snapshot JSON, and succeeded-snapshot upgrade evidence. The first `unknown` → `healthy` collection is not treated as a recovery.

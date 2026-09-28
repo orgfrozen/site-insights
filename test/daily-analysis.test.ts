@@ -165,6 +165,32 @@ describe("daily analysis snapshot", () => {
     expect(markdown).toContain("do not infer a site regression from collector failure alone");
   });
 
+
+  it("surfaces collection recovery before SEO metrics", () => {
+    const recoveredReport = report();
+    recoveredReport.collectionHealth = {
+      status: "healthy",
+      reason: "all_sources_succeeded",
+      affectedSources: [],
+      repeatedFailureSources: [],
+    };
+    const markdown = buildDailyAnalysisMarkdown(recoveredReport, {
+      analysisDate: "2026-09-01",
+      collectionStatus: "succeeded",
+      collectionRecovery: {
+        recovered: true,
+        fromStatus: "critical",
+        fromReason: "google_oauth_invalid_grant",
+        toStatus: "healthy",
+        toReason: "all_sources_succeeded",
+      },
+    });
+
+    expect(markdown).toContain("## Collection recovery");
+    expect(markdown).toContain("recovered from critical; reason=google_oauth_invalid_grant");
+    expect(markdown.indexOf("## Collection recovery")).toBeLessThan(markdown.indexOf("## Search summary"));
+  });
+
   it("builds one source-aware improvement task that allows a no-code conclusion", () => {
     const task = buildDailyAnalysisTask({
       projectId: "vetatool",
@@ -533,6 +559,7 @@ describe("daily analysis dispatch", () => {
         data_through: "2026-08-30",
         collection_status: "succeeded",
         collection_health: succeededReport.collectionHealth,
+        collection_recovery: null,
         supersedes_embedded_snapshot: true,
       },
     });

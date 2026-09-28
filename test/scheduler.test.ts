@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { CreateProjectInput } from "../src/domain/types";
 import type { SiteInsightsEnv } from "../src/env";
 import { runScheduledCollection } from "../src/collection/scheduler";
+import type { DailyAnalysisDispatchInput } from "../src/analysis/daily-analysis";
 import type { CollectionHealth } from "../src/reporting/status-repository";
 import { ProjectRepository } from "../src/projects/project-repository";
 
@@ -78,6 +79,7 @@ describe("scheduled GSC collection", () => {
       succeeded: 1,
       partial: 0,
       failed: 1,
+      recovered: 0,
       health: { healthy: 1, warning: 0, critical: 0, unknown: 1 },
     });
   });
@@ -100,9 +102,51 @@ describe("scheduled GSC collection", () => {
       succeeded: 0,
       partial: 1,
       failed: 0,
+      recovered: 0,
       health: { healthy: 0, warning: 1, critical: 0, unknown: 0 },
     });
   });
+
+  it("records a real warning/critical to healthy recovery without treating unknown as recovery", async () => {
+    const repository = new ProjectRepository(env.DB);
+    await repository.createProject(projectInput("recovery-site"));
+
+    const healthStates = [
+      collectionHealth("critical", "google_oauth_invalid_grant"),
+      collectionHealth("healthy", "all_sources_succeeded"),
+    ];
+    const dispatched: Array<DailyAnalysisDispatchInput> = [];
+    let healthRead = 0;
+    const summary = await runScheduledCollection(env as SiteInsightsEnv, {
+      collectProject: async (project) => ({
+        projectId: project.id,
+        status: "succeeded",
+        sources: {} as never,
+      }),
+      readCollectionHealth: async () => healthStates[Math.min(healthRead++, healthStates.length - 1)],
+      dispatchAnalysis: async (_project, _env, input) => {
+        dispatched.push(input);
+        return {
+          status: "succeeded",
+          dispatchStatus: "succeeded",
+          taskId: "task_recovery",
+          taskStatus: "ready",
+          created: true,
+          analysisDate: "2026-09-01",
+        };
+      },
+    });
+
+    expect(summary.recovered).toBe(1);
+    expect(dispatched[0].collectionRecovery).toEqual({
+      recovered: true,
+      fromStatus: "critical",
+      fromReason: "google_oauth_invalid_grant",
+      toStatus: "healthy",
+      toReason: "all_sources_succeeded",
+    });
+  });
+
 });
 
 describe("manual GSC collection route", () => {
@@ -149,6 +193,7 @@ describe("manual GSC collection route", () => {
         affectedSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
         repeatedFailureSources: [],
       },
+      collectionRecovery: null,
       analysisTask: {
         status: "failed",
         dispatchStatus: "failed",

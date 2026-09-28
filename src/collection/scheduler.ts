@@ -1,6 +1,7 @@
 import type { Project } from "../domain/types";
 import { dispatchDailyAnalysis, type DailyAnalysisDispatchInput, type DailyAnalysisDispatchResult } from "../analysis/daily-analysis";
 import { logEvent } from "../observability/logger";
+import { deriveCollectionRecovery, type CollectionRecovery } from "./collection-recovery";
 import type { SiteInsightsEnv } from "../env";
 import { ProjectRepository } from "../projects/project-repository";
 import { StatusRepository, type CollectionHealth } from "../reporting/status-repository";
@@ -22,6 +23,7 @@ export interface SchedulerSummary {
   succeeded: number;
   partial: number;
   failed: number;
+  recovered: number;
   health: SchedulerHealthSummary;
 }
 
@@ -68,6 +70,7 @@ export async function runScheduledCollection(
     succeeded: 0,
     partial: 0,
     failed: 0,
+    recovered: 0,
     health: { healthy: 0, warning: 0, critical: 0, unknown: 0 },
   };
   const collectProject = dependencies.collectProject ?? collectProjectGsc;
@@ -78,17 +81,38 @@ export async function runScheduledCollection(
   for (const project of projects) {
     let collectionStatus: ProjectCollectionSummary["status"] = "failed";
     let collectionHealth = unknownCollectionHealth("collection_unexpected_error");
+    let previousCollectionHealth = unknownCollectionHealth("collection_health_unavailable");
+    let collectionRecovery: CollectionRecovery | null = null;
+
+    try {
+      previousCollectionHealth = await readCollectionHealth(project.id, env);
+    } catch {
+      // Recovery detection is best effort and must not block collection.
+    }
+
     try {
       const result = await collectProject(project, env, { triggerType: "cron" });
       collectionStatus = result.status;
       summary[result.status] += 1;
       try {
         collectionHealth = await readCollectionHealth(project.id, env);
+        collectionRecovery = deriveCollectionRecovery(previousCollectionHealth, collectionHealth);
       } catch {
         collectionHealth = unknownCollectionHealth("collection_health_unavailable");
       }
     } catch {
       summary.failed += 1;
+    }
+
+    if (collectionRecovery) {
+      summary.recovered += 1;
+      logEvent("scheduled_collection_project_recovered", {
+        projectId: project.id,
+        fromStatus: collectionRecovery.fromStatus,
+        fromReason: collectionRecovery.fromReason,
+        toStatus: collectionRecovery.toStatus,
+        toReason: collectionRecovery.toReason,
+      });
     }
 
     summary.health[collectionHealth.status] += 1;
@@ -99,10 +123,13 @@ export async function runScheduledCollection(
       collectionHealthReason: collectionHealth.reason,
       affectedSources: collectionHealth.affectedSources,
       repeatedFailureSources: collectionHealth.repeatedFailureSources,
+      recovered: collectionRecovery !== null,
+      recoveredFromStatus: collectionRecovery?.fromStatus ?? null,
+      recoveredFromReason: collectionRecovery?.fromReason ?? null,
     });
 
     try {
-      await dispatchAnalysis(project, env, { collectionStatus });
+      await dispatchAnalysis(project, env, { collectionStatus, collectionRecovery });
     } catch {
       logEvent("daily_analysis_dispatch_unexpected_error", {
         projectId: project.id,
