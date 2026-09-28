@@ -5,6 +5,7 @@ import type { CreateProjectInput } from "../src/domain/types";
 import { ProjectRepository } from "../src/projects/project-repository";
 import {
   COLLECTION_STALE_AFTER_MS,
+  COLLECTION_STUCK_AFTER_MS,
   deriveCollectionHealth,
   type SourceStatus,
 } from "../src/reporting/status-repository";
@@ -236,6 +237,16 @@ function succeededSource(completedAt: string): SourceStatus {
   };
 }
 
+function runningSource(startedAt: string): SourceStatus {
+  return {
+    status: "running",
+    startedAt,
+    completedAt: null,
+    recordsWritten: 0,
+    errorCode: null,
+  };
+}
+
 describe("collection health freshness", () => {
   const now = new Date("2026-09-28T12:00:00.000Z");
   const freshAt = new Date(now.getTime() - COLLECTION_STALE_AFTER_MS + 60_000).toISOString();
@@ -254,6 +265,7 @@ describe("collection health freshness", () => {
       affectedSources: ["gsc_search_analytics"],
       repeatedFailureSources: [],
       staleSources: ["gsc_search_analytics"],
+      stuckSources: [],
     });
   });
 
@@ -270,6 +282,44 @@ describe("collection health freshness", () => {
       affectedSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
       repeatedFailureSources: [],
       staleSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
+      stuckSources: [],
+    });
+  });
+
+
+  it("keeps a recent running source degraded without calling it stuck", () => {
+    const runningAt = new Date(now.getTime() - COLLECTION_STUCK_AFTER_MS + 60_000).toISOString();
+    const health = deriveCollectionHealth({
+      gsc_search_analytics: runningSource(runningAt),
+      gsc_sitemaps: succeededSource(freshAt),
+      gsc_url_inspection: succeededSource(freshAt),
+    }, [], now);
+
+    expect(health).toEqual({
+      status: "warning",
+      reason: "collection_degraded",
+      affectedSources: ["gsc_search_analytics"],
+      repeatedFailureSources: [],
+      staleSources: [],
+      stuckSources: [],
+    });
+  });
+
+  it("marks a long-running source critical as a stuck collection", () => {
+    const runningAt = new Date(now.getTime() - COLLECTION_STUCK_AFTER_MS - 60_000).toISOString();
+    const health = deriveCollectionHealth({
+      gsc_search_analytics: runningSource(runningAt),
+      gsc_sitemaps: succeededSource(freshAt),
+      gsc_url_inspection: succeededSource(freshAt),
+    }, [], now);
+
+    expect(health).toEqual({
+      status: "critical",
+      reason: "collection_stuck",
+      affectedSources: ["gsc_search_analytics"],
+      repeatedFailureSources: [],
+      staleSources: [],
+      stuckSources: ["gsc_search_analytics"],
     });
   });
 });
@@ -360,6 +410,7 @@ describe("read-only project status API", () => {
       affectedSources: ["gsc_sitemaps", "gsc_url_inspection"],
       repeatedFailureSources: [],
       staleSources: ["gsc_search_analytics"],
+      stuckSources: [],
     });
     expect(body.sources).toEqual({
       gsc_search_analytics: {
@@ -406,6 +457,7 @@ describe("read-only project status API", () => {
       affectedSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
       repeatedFailureSources: [],
       staleSources: [],
+      stuckSources: [],
     });
     expect(body.sources.gsc_search_analytics).toEqual({ status: "never_collected" });
   });
@@ -443,6 +495,7 @@ describe("read-only project status API", () => {
       affectedSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
       repeatedFailureSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
       staleSources: [],
+      stuckSources: [],
     });
   });
 
@@ -483,6 +536,7 @@ describe("read-only project status API", () => {
       affectedSources: ["gsc_sitemaps"],
       repeatedFailureSources: ["gsc_sitemaps"],
       staleSources: [],
+      stuckSources: [],
     });
   });
 
@@ -517,6 +571,7 @@ describe("read-only project status API", () => {
       affectedSources: [],
       repeatedFailureSources: [],
       staleSources: [],
+      stuckSources: [],
     });
   });
 

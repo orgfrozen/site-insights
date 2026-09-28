@@ -152,6 +152,7 @@ export function buildDailyAnalysisMarkdown(
         `- affected sources: ${health.affectedSources.join(", ") || "none"}`,
         `- repeated failures: ${health.repeatedFailureSources.join(", ") || "none"}`,
         `- stale sources: ${health.staleSources.join(", ") || "none"}`,
+        `- stuck sources: ${health.stuckSources.join(", ") || "none"}`,
         "- Treat search/indexing metrics as potentially stale until collection health recovers; do not infer a site regression from collector failure alone.",
       ];
   const recovery = options.collectionRecovery;
@@ -212,7 +213,7 @@ export function buildDailyAnalysisMarkdown(
     ...report.sitemaps.slice(0, 10).map((row) => `- ${tableCell(row.path)}: errors=${tableCell(row.errors)}; warnings=${tableCell(row.warnings)}; pending=${tableCell(row.isPending)}; lastDownloaded=${tableCell(row.lastDownloaded) || "unknown"}`),
     "",
     "## Collection health",
-    `- overall: ${health.status}; reason=${health.reason}; affected=${health.affectedSources.join(",") || "none"}; repeatedFailures=${health.repeatedFailureSources.join(",") || "none"}; stale=${health.staleSources.join(",") || "none"}`,
+    `- overall: ${health.status}; reason=${health.reason}; affected=${health.affectedSources.join(",") || "none"}; repeatedFailures=${health.repeatedFailureSources.join(",") || "none"}; stale=${health.staleSources.join(",") || "none"}; stuck=${health.stuckSources.join(",") || "none"}`,
     ...Object.entries(report.sources).map(([source, state]) => state.status === "never_collected"
       ? `- ${source}: never_collected`
       : `- ${source}: ${state.status}; records=${state.recordsWritten}; error=${state.errorCode ?? "none"}`),

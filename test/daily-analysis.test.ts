@@ -78,6 +78,7 @@ function report(): ProjectStatusReport {
       affectedSources: ["gsc_url_inspection"],
       repeatedFailureSources: [],
       staleSources: [],
+      stuckSources: [],
     },
     sources: {
       gsc_search_analytics: {
@@ -155,6 +156,7 @@ describe("daily analysis snapshot", () => {
         "gsc_url_inspection",
       ],
       staleSources: [],
+      stuckSources: [],
     };
     const markdown = buildDailyAnalysisMarkdown(criticalReport, {
       analysisDate: "2026-09-01",
@@ -176,6 +178,7 @@ describe("daily analysis snapshot", () => {
       affectedSources: [],
       repeatedFailureSources: [],
       staleSources: [],
+      stuckSources: [],
     };
     const markdown = buildDailyAnalysisMarkdown(recoveredReport, {
       analysisDate: "2026-09-01",

@@ -57,6 +57,7 @@ function unknownCollectionHealth(reason: string): CollectionHealth {
     affectedSources: [],
     repeatedFailureSources: [],
     staleSources: [],
+    stuckSources: [],
   };
 }
 
@@ -125,6 +126,7 @@ export async function runScheduledCollection(
       affectedSources: collectionHealth.affectedSources,
       repeatedFailureSources: collectionHealth.repeatedFailureSources,
       staleSources: collectionHealth.staleSources,
+      stuckSources: collectionHealth.stuckSources,
       recovered: collectionRecovery !== null,
       recoveredFromStatus: collectionRecovery?.fromStatus ?? null,
       recoveredFromReason: collectionRecovery?.fromReason ?? null,

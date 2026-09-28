@@ -46,9 +46,11 @@ export interface CollectionHealth {
   affectedSources: CollectionSource[];
   repeatedFailureSources: CollectionSource[];
   staleSources: CollectionSource[];
+  stuckSources: CollectionSource[];
 }
 
 export const COLLECTION_STALE_AFTER_MS = 36 * 60 * 60 * 1000;
+export const COLLECTION_STUCK_AFTER_MS = 60 * 60 * 1000;
 
 function staleSources(
   sources: Record<CollectionSource, SourceStatus>,
@@ -64,6 +66,19 @@ function staleSources(
   });
 }
 
+function stuckSources(
+  sources: Record<CollectionSource, SourceStatus>,
+  now: Date,
+): CollectionSource[] {
+  const nowMs = now.getTime();
+  return COLLECTION_SOURCES.filter((source) => {
+    const state = sources[source];
+    if (state.status !== "running") return false;
+    const startedAtMs = Date.parse(state.startedAt);
+    return Number.isFinite(startedAtMs) && nowMs - startedAtMs > COLLECTION_STUCK_AFTER_MS;
+  });
+}
+
 export function deriveCollectionHealth(
   sources: Record<CollectionSource, SourceStatus>,
   repeatedFailureSources: CollectionSource[],
@@ -71,6 +86,7 @@ export function deriveCollectionHealth(
 ): CollectionHealth {
   const affectedSources = COLLECTION_SOURCES.filter((source) => sources[source].status !== "succeeded");
   const stale = staleSources(sources, now);
+  const stuck = stuckSources(sources, now);
   const observedSources = COLLECTION_SOURCES.filter((source) => sources[source].status !== "never_collected");
   const failedSources = COLLECTION_SOURCES.filter((source) => sources[source].status === "failed");
   const latestErrorCodes = failedSources.map((source) => {
@@ -91,6 +107,17 @@ export function deriveCollectionHealth(
       affectedSources: [...COLLECTION_SOURCES],
       repeatedFailureSources,
       staleSources: [],
+      stuckSources: [],
+    };
+  }
+  if (stuck.length > 0) {
+    return {
+      status: "critical",
+      reason: "collection_stuck",
+      affectedSources,
+      repeatedFailureSources,
+      staleSources: stale,
+      stuckSources: stuck,
     };
   }
   if (affectedSources.length === 0 && stale.length === COLLECTION_SOURCES.length) {
@@ -100,6 +127,7 @@ export function deriveCollectionHealth(
       affectedSources: stale,
       repeatedFailureSources: [],
       staleSources: stale,
+      stuckSources: stuck,
     };
   }
   if (affectedSources.length === 0 && stale.length > 0) {
@@ -109,6 +137,7 @@ export function deriveCollectionHealth(
       affectedSources: stale,
       repeatedFailureSources: [],
       staleSources: stale,
+      stuckSources: stuck,
     };
   }
   if (affectedSources.length === 0) {
@@ -118,6 +147,7 @@ export function deriveCollectionHealth(
       affectedSources: [],
       repeatedFailureSources: [],
       staleSources: [],
+      stuckSources: [],
     };
   }
   if (systemicGoogleFailure) {
@@ -127,6 +157,7 @@ export function deriveCollectionHealth(
       affectedSources,
       repeatedFailureSources,
       staleSources: stale,
+      stuckSources: stuck,
     };
   }
   if (failedSources.length === COLLECTION_SOURCES.length) {
@@ -136,6 +167,7 @@ export function deriveCollectionHealth(
       affectedSources,
       repeatedFailureSources,
       staleSources: stale,
+      stuckSources: stuck,
     };
   }
   if (repeatedFailureSources.length > 0) {
@@ -145,6 +177,7 @@ export function deriveCollectionHealth(
       affectedSources,
       repeatedFailureSources,
       staleSources: stale,
+      stuckSources: stuck,
     };
   }
   return {
@@ -153,6 +186,7 @@ export function deriveCollectionHealth(
     affectedSources,
     repeatedFailureSources,
     staleSources: stale,
+    stuckSources: stuck,
   };
 }
 

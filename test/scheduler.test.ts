@@ -12,7 +12,14 @@ function collectionHealth(
   status: CollectionHealth["status"],
   reason: string,
 ): CollectionHealth {
-  return { status, reason, affectedSources: [], repeatedFailureSources: [], staleSources: [] };
+  return {
+    status,
+    reason,
+    affectedSources: [],
+    repeatedFailureSources: [],
+    staleSources: [],
+    stuckSources: [],
+  };
 }
 
 function projectInput(id: string): CreateProjectInput {
@@ -193,6 +200,7 @@ describe("manual GSC collection route", () => {
         affectedSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
         repeatedFailureSources: [],
         staleSources: [],
+        stuckSources: [],
       },
       collectionRecovery: null,
       analysisTask: {
