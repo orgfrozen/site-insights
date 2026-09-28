@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import type { CreateProjectInput } from "../src/domain/types";
 import { ProjectRepository } from "../src/projects/project-repository";
+import {
+  COLLECTION_STALE_AFTER_MS,
+  deriveCollectionHealth,
+  type SourceStatus,
+} from "../src/reporting/status-repository";
 
 function projectInput(id: string): CreateProjectInput {
   const domain = `${id}.com`;
@@ -221,6 +226,54 @@ async function seedIndexingAndRuns(projectId: string): Promise<void> {
   ]);
 }
 
+function succeededSource(completedAt: string): SourceStatus {
+  return {
+    status: "succeeded",
+    startedAt: completedAt,
+    completedAt,
+    recordsWritten: 1,
+    errorCode: null,
+  };
+}
+
+describe("collection health freshness", () => {
+  const now = new Date("2026-09-28T12:00:00.000Z");
+  const freshAt = new Date(now.getTime() - COLLECTION_STALE_AFTER_MS + 60_000).toISOString();
+  const staleAt = new Date(now.getTime() - COLLECTION_STALE_AFTER_MS - 60_000).toISOString();
+
+  it("marks one stale successful source warning while keeping fresh sources healthy", () => {
+    const health = deriveCollectionHealth({
+      gsc_search_analytics: succeededSource(staleAt),
+      gsc_sitemaps: succeededSource(freshAt),
+      gsc_url_inspection: succeededSource(freshAt),
+    }, [], now);
+
+    expect(health).toEqual({
+      status: "warning",
+      reason: "collection_stale",
+      affectedSources: ["gsc_search_analytics"],
+      repeatedFailureSources: [],
+      staleSources: ["gsc_search_analytics"],
+    });
+  });
+
+  it("marks the project critical when every successful source is stale", () => {
+    const health = deriveCollectionHealth({
+      gsc_search_analytics: succeededSource(staleAt),
+      gsc_sitemaps: succeededSource(staleAt),
+      gsc_url_inspection: succeededSource(staleAt),
+    }, [], now);
+
+    expect(health).toEqual({
+      status: "critical",
+      reason: "collection_stale",
+      affectedSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
+      repeatedFailureSources: [],
+      staleSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
+    });
+  });
+});
+
 describe("read-only project status API", () => {
   it("aggregates stored finalized GSC data without calling Google", async () => {
     const repository = new ProjectRepository(env.DB);
@@ -306,6 +359,7 @@ describe("read-only project status API", () => {
       reason: "collection_degraded",
       affectedSources: ["gsc_sitemaps", "gsc_url_inspection"],
       repeatedFailureSources: [],
+      staleSources: ["gsc_search_analytics"],
     });
     expect(body.sources).toEqual({
       gsc_search_analytics: {
@@ -351,6 +405,7 @@ describe("read-only project status API", () => {
       reason: "never_collected",
       affectedSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
       repeatedFailureSources: [],
+      staleSources: [],
     });
     expect(body.sources.gsc_search_analytics).toEqual({ status: "never_collected" });
   });
@@ -387,6 +442,7 @@ describe("read-only project status API", () => {
       reason: "google_oauth_invalid_grant",
       affectedSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
       repeatedFailureSources: ["gsc_search_analytics", "gsc_sitemaps", "gsc_url_inspection"],
+      staleSources: [],
     });
   });
 
@@ -426,6 +482,7 @@ describe("read-only project status API", () => {
       reason: "repeated_collection_failures",
       affectedSources: ["gsc_sitemaps"],
       repeatedFailureSources: ["gsc_sitemaps"],
+      staleSources: [],
     });
   });
 
@@ -459,6 +516,7 @@ describe("read-only project status API", () => {
       reason: "all_sources_succeeded",
       affectedSources: [],
       repeatedFailureSources: [],
+      staleSources: [],
     });
   });
 

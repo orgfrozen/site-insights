@@ -224,7 +224,7 @@ Read-only `/v1/*` routing is protected with `Authorization: Bearer <READ_API_TOK
 GET /v1/projects/:id/status
 ```
 
-`collectionHealth.status` is `healthy`, `warning`, `critical`, or `unknown`. Shared Google OAuth failures and all-source failures are critical immediately; a source whose two latest runs both failed is also critical until a successful run clears the repeated-failure condition. Daily Snapshots surface non-healthy collection state before SEO metrics.
+`collectionHealth.status` is `healthy`, `warning`, `critical`, or `unknown`. Shared Google OAuth failures and all-source failures are critical immediately; a source whose two latest runs both failed is also critical until a successful run clears the repeated-failure condition. Because production collection is scheduled daily, a latest successful source run older than 36 hours is also treated as stale: one or two stale sources produce `warning`, while all three stale sources produce `critical`, with the machine-readable sources listed in `collectionHealth.staleSources`. This prevents a stopped Cron from leaving collection health permanently green. Daily Snapshots surface non-healthy collection state before SEO metrics.
 
 ## Example: create ZeroParse
 

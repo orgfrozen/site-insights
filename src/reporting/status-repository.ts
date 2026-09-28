@@ -45,13 +45,32 @@ export interface CollectionHealth {
   reason: string;
   affectedSources: CollectionSource[];
   repeatedFailureSources: CollectionSource[];
+  staleSources: CollectionSource[];
+}
+
+export const COLLECTION_STALE_AFTER_MS = 36 * 60 * 60 * 1000;
+
+function staleSources(
+  sources: Record<CollectionSource, SourceStatus>,
+  now: Date,
+): CollectionSource[] {
+  const nowMs = now.getTime();
+  return COLLECTION_SOURCES.filter((source) => {
+    const state = sources[source];
+    if (state.status !== "succeeded") return false;
+    const completedAt = state.completedAt ?? state.startedAt;
+    const completedAtMs = Date.parse(completedAt);
+    return Number.isFinite(completedAtMs) && nowMs - completedAtMs > COLLECTION_STALE_AFTER_MS;
+  });
 }
 
 export function deriveCollectionHealth(
   sources: Record<CollectionSource, SourceStatus>,
   repeatedFailureSources: CollectionSource[],
+  now = new Date(),
 ): CollectionHealth {
   const affectedSources = COLLECTION_SOURCES.filter((source) => sources[source].status !== "succeeded");
+  const stale = staleSources(sources, now);
   const observedSources = COLLECTION_SOURCES.filter((source) => sources[source].status !== "never_collected");
   const failedSources = COLLECTION_SOURCES.filter((source) => sources[source].status === "failed");
   const latestErrorCodes = failedSources.map((source) => {
@@ -71,6 +90,25 @@ export function deriveCollectionHealth(
       reason: "never_collected",
       affectedSources: [...COLLECTION_SOURCES],
       repeatedFailureSources,
+      staleSources: [],
+    };
+  }
+  if (affectedSources.length === 0 && stale.length === COLLECTION_SOURCES.length) {
+    return {
+      status: "critical",
+      reason: "collection_stale",
+      affectedSources: stale,
+      repeatedFailureSources: [],
+      staleSources: stale,
+    };
+  }
+  if (affectedSources.length === 0 && stale.length > 0) {
+    return {
+      status: "warning",
+      reason: "collection_stale",
+      affectedSources: stale,
+      repeatedFailureSources: [],
+      staleSources: stale,
     };
   }
   if (affectedSources.length === 0) {
@@ -79,6 +117,7 @@ export function deriveCollectionHealth(
       reason: "all_sources_succeeded",
       affectedSources: [],
       repeatedFailureSources: [],
+      staleSources: [],
     };
   }
   if (systemicGoogleFailure) {
@@ -87,6 +126,7 @@ export function deriveCollectionHealth(
       reason: commonErrorCode,
       affectedSources,
       repeatedFailureSources,
+      staleSources: stale,
     };
   }
   if (failedSources.length === COLLECTION_SOURCES.length) {
@@ -95,6 +135,7 @@ export function deriveCollectionHealth(
       reason: "all_collection_sources_failed",
       affectedSources,
       repeatedFailureSources,
+      staleSources: stale,
     };
   }
   if (repeatedFailureSources.length > 0) {
@@ -103,6 +144,7 @@ export function deriveCollectionHealth(
       reason: "repeated_collection_failures",
       affectedSources,
       repeatedFailureSources,
+      staleSources: stale,
     };
   }
   return {
@@ -110,6 +152,7 @@ export function deriveCollectionHealth(
     reason: "collection_degraded",
     affectedSources,
     repeatedFailureSources,
+    staleSources: stale,
   };
 }
 
@@ -407,7 +450,7 @@ export class StatusRepository {
     }));
   }
 
-  private async sourceState(projectId: string): Promise<{
+  private async sourceState(projectId: string, now = new Date()): Promise<{
     sources: Record<CollectionSource, SourceStatus>;
     collectionHealth: CollectionHealth;
   }> {
@@ -440,12 +483,12 @@ export class StatusRepository {
 
     return {
       sources,
-      collectionHealth: deriveCollectionHealth(sources, repeatedFailureSources),
+      collectionHealth: deriveCollectionHealth(sources, repeatedFailureSources, now),
     };
   }
 
-  async getCollectionHealth(projectId: string): Promise<CollectionHealth> {
-    return (await this.sourceState(projectId)).collectionHealth;
+  async getCollectionHealth(projectId: string, now = new Date()): Promise<CollectionHealth> {
+    return (await this.sourceState(projectId, now)).collectionHealth;
   }
 
   async getProjectStatus(projectId: string, now = new Date()): Promise<ProjectStatusReport | null> {
@@ -508,7 +551,7 @@ export class StatusRepository {
     const [coreUrls, sitemaps, sourceState] = await Promise.all([
       this.latestInspections(projectId),
       this.latestSitemaps(projectId),
-      this.sourceState(projectId),
+      this.sourceState(projectId, now),
     ]);
 
     return {

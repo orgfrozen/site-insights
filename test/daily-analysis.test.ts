@@ -77,6 +77,7 @@ function report(): ProjectStatusReport {
       reason: "collection_degraded",
       affectedSources: ["gsc_url_inspection"],
       repeatedFailureSources: [],
+      staleSources: [],
     },
     sources: {
       gsc_search_analytics: {
@@ -153,6 +154,7 @@ describe("daily analysis snapshot", () => {
         "gsc_sitemaps",
         "gsc_url_inspection",
       ],
+      staleSources: [],
     };
     const markdown = buildDailyAnalysisMarkdown(criticalReport, {
       analysisDate: "2026-09-01",
@@ -173,6 +175,7 @@ describe("daily analysis snapshot", () => {
       reason: "all_sources_succeeded",
       affectedSources: [],
       repeatedFailureSources: [],
+      staleSources: [],
     };
     const markdown = buildDailyAnalysisMarkdown(recoveredReport, {
       analysisDate: "2026-09-01",
